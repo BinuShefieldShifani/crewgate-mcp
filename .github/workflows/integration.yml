@@ -1,0 +1,42 @@
+name: integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  keycloak:
+    name: Integration (Keycloak + mock API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Start Keycloak and mock crew API
+        run: docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
+      - name: Integration tests
+        run: uv run pytest -m integration tests/integration -v --junitxml=integration.xml
+      - name: Demo (same as make demo)
+        run: uv run python scripts/demo_obo.py
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v

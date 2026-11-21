@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m integration
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen
@@ -27,8 +27,8 @@ security:
 
 check: lint type cov security   ## everything CI runs, except the image scan
 
-up:
-	docker compose -f deploy/docker-compose.yml up -d --build
+up:           ## start Keycloak + mock crew API, wait until both are healthy
+	docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
 
 down:
 	docker compose -f deploy/docker-compose.yml down -v
@@ -36,5 +36,11 @@ down:
 logs:
 	docker compose -f deploy/docker-compose.yml logs -f
 
-demo:
+demo:         ## Step 2: PKCE sign-in, OBO exchange, role enforcement (needs make up)
+	uv run python scripts/demo_obo.py
+
+demo-m2m:     ## Step 1: client credentials against a mock API in local mode (no Keycloak)
 	uv run python scripts/demo_crew_client.py
+
+integration:  ## tests against the running stack (needs make up)
+	uv run pytest -m integration tests/integration -v
