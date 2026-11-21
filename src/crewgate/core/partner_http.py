@@ -23,6 +23,7 @@ import httpx
 from pydantic import SecretStr
 
 from .errors import ErrorCategory, PartnerError
+from .metrics import GatewayMetrics
 
 log = logging.getLogger("crewgate.partner_http")
 
@@ -130,6 +131,17 @@ class PartnerClient:
     policy: RetryPolicy = field(default_factory=RetryPolicy)
     sleep: Sleep = asyncio.sleep
     retry_log: list[RetryEvent] = field(default_factory=list)
+    name: str = "partner"  # metrics label, e.g. "crew-roster" or "duffel"
+    metrics: GatewayMetrics | None = None
+
+    def _count(self, status: int | None) -> None:
+        if self.metrics is not None:
+            cls = f"{status // 100}xx" if status else "network_error"
+            self.metrics.partner_requests.labels(self.name, cls).inc()
+
+    def _count_retry(self, cause: str) -> None:
+        if self.metrics is not None:
+            self.metrics.partner_retries.labels(self.name, cause).inc()
 
     async def request(self, method: str, path: str, **kwargs: Any) -> Any:
         refreshed = False
@@ -139,24 +151,30 @@ class PartnerClient:
             try:
                 resp = await self.http.request(method, path, headers=headers, **kwargs)
             except httpx.TransportError as exc:
+                self._count(None)
                 if attempt >= self.policy.max_retries:
                     raise PartnerError(ErrorCategory.UPSTREAM_UNAVAILABLE, type(exc).__name__) from exc
+                self._count_retry("network")
                 await self._backoff(attempt, 0)
                 attempt += 1
                 continue
 
+            self._count(resp.status_code)
             if resp.status_code == 401 and self.auth.refreshable and not refreshed:
                 refreshed = True
+                self._count_retry("401_refresh")
                 await self.auth.headers(force_refresh=True)
                 continue
             if resp.status_code == 429 and attempt < self.policy.max_retries:
                 wait = min(_retry_after(resp), self.policy.max_retry_after_seconds)
                 self.retry_log.append(RetryEvent(429, wait))
+                self._count_retry("429")
                 log.warning("partner_rate_limited", extra={"path": path, "wait": wait})
                 await self.sleep(wait)
                 attempt += 1
                 continue
             if resp.status_code >= 500 and attempt < self.policy.max_retries:
+                self._count_retry("5xx")
                 await self._backoff(attempt, resp.status_code)
                 attempt += 1
                 continue

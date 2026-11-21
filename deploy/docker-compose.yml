@@ -45,6 +45,8 @@ services:
       MOCKAPI_AUTH_MODE: oidc
       MOCKAPI_OIDC_ISSUER: http://localhost:8080/realms/crewgate
       MOCKAPI_OIDC_JWKS_URL: http://keycloak:8080/realms/crewgate/protocol/openid-connect/certs
+      # Every call must be HMAC-signed by the gateway. A JSON list, so keys can be rotated.
+      MOCKAPI_HMAC_SECRETS: '${MOCKAPI_HMAC_SECRETS:-["dev-only-hmac-secret"]}'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
       interval: 5s

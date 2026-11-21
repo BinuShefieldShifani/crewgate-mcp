@@ -70,8 +70,8 @@ Rules that keep it honest:
 | Service principals / M2M | Client credentials for system-to-system calls | `ClientCredentials` in `core/partner_http.py` |
 | Least privilege | Per-tool scopes plus per-client entitlements (allowed tools, quotas, markets) | Scope-violation test suite |
 | Secrets management | `SecretStr` settings from env / Key Vault; nothing in code; gitleaks in pre-commit and CI | `test_secrets_never_leak_through_settings_repr`, CI secret scan |
-| Safe logging, GDPR | Structured JSON logs with names, emails and crew IDs redacted; separate SHA-256 hash-chained audit log | Redaction tests; audit chain tamper test |
-| Signed partner traffic | HMAC signatures on outbound partner calls and inbound webhooks, with timestamp and replay window | Signature tests incl. tampered body and replay |
+| Safe logging, GDPR | JSON logs: secrets removed, personal data (names, emails, phones, birth dates, crew ids) replaced by keyed pseudonyms. Separate HMAC-SHA256 chained audit log that stores an argument digest, not raw arguments | `test_safe_logging.py`; `test_audit.py` (edit, delete, reorder, rebuilt-without-key) |
+| Signed partner traffic | Outbound: HMAC-SHA256 over timestamp, nonce, method, path and body, so requests can't be replayed, re-pointed or rewritten. Inbound: Duffel's `X-Duffel-Signature` scheme (`t=..,v1=..` hex HMAC over `t.body`) plus a timestamp window and duplicate-event detection, which Duffel's sample code leaves out. Multiple secrets for rotation | `tests/unit/core/test_signing.py` (incl. Duffel reference vector), `test_partner_refuses_unsigned_calls_even_with_a_valid_obo_token` |
 | Rate limits, pagination, token lifecycle | Retry-After aware retries, retry budget, cursor pagination, refresh before expiry, single refresh on 401 | `tests/unit/core/test_partner_http.py`, `tests/unit/plugins/test_crew_client.py` |
 | Monitoring | Prometheus metrics, OpenTelemetry traces, Grafana dashboard, alert rules | Compose stack and dashboard screenshot |
 

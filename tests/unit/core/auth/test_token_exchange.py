@@ -239,3 +239,22 @@ async def test_partner_401_triggers_one_fresh_exchange(idp: FakeIdp, exchanger: 
 def test_oidc_mode_builds_its_own_verifier() -> None:
     app = create_app(ApiSettings(auth_mode="oidc", oidc_jwks_url=JWKS_URL, oidc_issuer=ISSUER))
     assert app.title == "Mock Crew Roster API"
+
+
+async def test_exchange_metrics(idp: FakeIdp, clock: Clock) -> None:
+    from crewgate.core.metrics import GatewayMetrics
+
+    m = GatewayMetrics()
+    ex = TokenExchanger(idp.client(), TOKEN_URL, GATEWAY, SecretStr("s"), clock=clock, metrics=m)
+    reader = await principal(idp, scope="openid roster.read")
+    await ex.exchange(reader, PARTNER, ["roster.read"])
+    with pytest.raises(AuthError):
+        await ex.exchange(reader, PARTNER, ["swap.write"])
+    idp.exchange_response = _reply(400, {"error": "invalid_grant"})
+    with pytest.raises(AuthError):
+        await ex.exchange(await principal(idp, sub="user-erik"), PARTNER, [])
+
+    def count(outcome: str) -> float:
+        return m.value("crewgate_token_exchanges_total", audience=PARTNER, outcome=outcome)
+
+    assert (count("ok"), count("refused_upscope"), count("error")) == (1, 1, 1)

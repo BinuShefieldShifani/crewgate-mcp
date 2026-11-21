@@ -113,3 +113,42 @@ async def test_paginate_supports_nested_cursor_key():
 
 def test_dig_handles_non_dict():
     assert _dig({"a": 1}, "a.b") is None
+
+
+# ---- metrics ------------------------------------------------------------------------------
+
+
+class _Refreshable:
+    refreshable = True
+
+    def __init__(self) -> None:
+        self.forced = 0
+
+    async def headers(self, force_refresh: bool = False) -> dict[str, str]:
+        self.forced += force_refresh
+        return {"Authorization": "Bearer t"}
+
+
+async def test_partner_metrics_count_every_attempt_and_retry_cause():
+    from crewgate.core.metrics import GatewayMetrics
+
+    m = GatewayMetrics()
+    responses = [
+        httpx.ConnectError("down"),
+        httpx.Response(401),
+        httpx.Response(429, headers={"Retry-After": "1"}),
+        httpx.Response(503),
+        httpx.Response(200, json={"ok": 1}),
+    ]
+    pc, calls = client_for(responses, auth=_Refreshable(), name="crew-roster", metrics=m)
+    assert await pc.request("GET", "/x") == {"ok": 1}
+    assert len(calls) == 5
+
+    def requests(cls: str) -> float:
+        return m.value("crewgate_partner_requests_total", partner="crew-roster", status_class=cls)
+
+    def retries(cause: str) -> float:
+        return m.value("crewgate_partner_retries_total", partner="crew-roster", cause=cause)
+
+    assert (requests("network_error"), requests("4xx"), requests("5xx"), requests("2xx")) == (1, 2, 1, 1)
+    assert (retries("network"), retries("401_refresh"), retries("429"), retries("5xx")) == (1, 1, 1, 1)

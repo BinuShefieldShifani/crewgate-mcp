@@ -7,7 +7,9 @@ from typing import Any
 
 import httpx
 
+from crewgate.core.metrics import GatewayMetrics
 from crewgate.core.partner_http import AuthStrategy, ClientCredentials, PartnerClient
+from crewgate.core.signing import RequestSigner, SigningAuth
 
 from .config import CrewSettings
 
@@ -20,14 +22,18 @@ class RosterClient:
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         auth: AuthStrategy | None = None,
+        metrics: GatewayMetrics | None = None,
     ) -> None:
         """`auth` defaults to client credentials (M2M). Pass OnBehalfOf to act for a signed-in user."""
         self.settings = s = settings or CrewSettings()
-        self.http = httpx.AsyncClient(base_url=s.api_base_url, transport=transport, timeout=s.timeout_seconds)
+        signing = SigningAuth(RequestSigner(s.hmac_secret, clock=clock)) if s.hmac_secret else None
+        self.http = httpx.AsyncClient(
+            base_url=s.api_base_url, transport=transport, timeout=s.timeout_seconds, auth=signing
+        )
         self.auth: AuthStrategy = auth or ClientCredentials(
             self.http, s.token_url, s.client_id, s.client_secret, s.scopes, clock=clock
         )
-        self.partner = PartnerClient(self.http, self.auth, sleep=sleep)
+        self.partner = PartnerClient(self.http, self.auth, sleep=sleep, name="crew-roster", metrics=metrics)
 
     async def close(self) -> None:
         await self.http.aclose()

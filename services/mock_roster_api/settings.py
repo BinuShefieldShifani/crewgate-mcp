@@ -17,6 +17,10 @@ class ApiSettings(BaseSettings):
     oidc_jwks_url: str = "http://localhost:8080/realms/crewgate/protocol/openid-connect/certs"
     role_for_scope: dict[str, str] = {"roster.read": "roster-reader", "swap.write": "swap-requester"}
     audience: str = "crew-roster-api"
+    # When set, every call except /health must carry a valid X-Crewgate-Signature.
+    # Several secrets may be listed during a key rotation.
+    hmac_secrets: list[SecretStr] = []
+    signature_tolerance_seconds: float = 300.0
     jwt_signing_key: SecretStr = SecretStr("dev-only-signing-key-change-me-0123456789")
     token_ttl_seconds: int = 300
     rate_limit_per_minute: int = 60

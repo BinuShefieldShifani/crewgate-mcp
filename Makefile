@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m integration
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard audit-verify integration
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen
@@ -38,6 +38,12 @@ logs:
 
 demo:         ## Step 2: PKCE sign-in, OBO exchange, role enforcement (needs make up)
 	uv run python scripts/demo_obo.py
+
+demo-guard:   ## Step 3: entitlements, scopes, rate limits, signing, redacted logs, audit chain, metrics
+	uv run python scripts/demo_guard.py
+
+audit-verify: ## check the HMAC chain of the audit file written by demo-guard
+	uv run python scripts/verify_audit.py var/audit.jsonl
 
 demo-m2m:     ## Step 1: client credentials against a mock API in local mode (no Keycloak)
 	uv run python scripts/demo_crew_client.py
