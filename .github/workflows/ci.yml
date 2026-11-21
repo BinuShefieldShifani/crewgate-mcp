@@ -12,6 +12,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint-type:
     name: Lint and type check
@@ -86,9 +90,20 @@ jobs:
           curl -fs http://localhost:8001/health | grep ok
       # Not using aquasecurity/trivy-action: its version tags were force-pushed to malware in
       # March 2026 (GHSA-69fq-xp46-6x23). We run a pinned Trivy image that Aqua lists as clean.
+      # The DB comes from Google's mirror first, so GHCR rate limits don't fail the build.
       - name: Trivy image scan
+        env:
+          IMAGE: crewgate/mock-roster:${{ github.sha }}
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -e TRIVY_DB_REPOSITORY=mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2 \
             ghcr.io/aquasecurity/trivy:0.69.2 image \
-            --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --no-progress \
-            crewgate/mock-roster:${{ github.sha }}
+            --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --no-progress \
+            --format table --exit-code 1 "$IMAGE" | tee trivy.txt
+      - name: Scan summary
+        if: always()
+        run: |
+          echo "### Image scan (CRITICAL, HIGH, fixable)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat trivy.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no report" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

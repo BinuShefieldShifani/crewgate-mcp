@@ -8,7 +8,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: "docker"
     directory: "/services/mock_roster_api"
     schedule:
       interval: "weekly"
+    ignore:
+      # Python version moves are a deliberate decision (lockfile, CI matrix, mypy target),
+      # not a weekly bump. Patch updates of 3.12-slim still come through.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

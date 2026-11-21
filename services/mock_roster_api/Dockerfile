@@ -8,7 +8,11 @@ COPY services ./services
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim
-RUN useradd --create-home --uid 10001 app
+# Pull in Debian security fixes released after the base image was built, then drop apt caches.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 app
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" MOCKAPI_HOST=0.0.0.0 MOCKAPI_PORT=8001
