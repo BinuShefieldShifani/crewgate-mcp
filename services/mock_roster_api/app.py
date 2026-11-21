@@ -5,6 +5,9 @@ Behaves like a strict third-party API so the crew plugin is tested against real 
 - scope checks per endpoint (roster.read, swap.write)
 - per-client rate limiting that returns 429 with Retry-After
 - cursor pagination with a capped page size
+- OIDC mode: trusts Keycloak tokens and enforces scope AND user role, so an app scope alone
+  never lets a user do something their role forbids. A real partner would bring its own JWT
+  library; the mock reuses crewgate's verifier to stay small.
 The clock is injectable so tests can move time without sleeping.
 """
 
@@ -15,10 +18,13 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from typing import Annotated, Any
 
+import httpx
 import jwt
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from crewgate.core.auth import AuthError, JwksCache, TokenVerifier
 
 from .data import build_dataset
 from .settings import ApiSettings
@@ -63,8 +69,15 @@ def _decode_cursor(cursor: str) -> int:
         raise HTTPException(400, "invalid cursor") from exc
 
 
-def create_app(settings: ApiSettings | None = None, clock: Callable[[], float] = time.time) -> FastAPI:
+def create_app(
+    settings: ApiSettings | None = None,
+    clock: Callable[[], float] = time.time,
+    verifier: TokenVerifier | None = None,
+) -> FastAPI:
     settings = settings or ApiSettings()
+    if settings.auth_mode == "oidc" and verifier is None:
+        jwks = JwksCache(settings.oidc_jwks_url, httpx.AsyncClient(timeout=5.0))
+        verifier = TokenVerifier(settings.oidc_issuer, settings.audience, jwks)
     app = FastAPI(title="Mock Crew Roster API")
     crew, roster = build_dataset()
     crew_by_id = {c["crew_id"]: c for c in crew}
@@ -114,24 +127,46 @@ def create_app(settings: ApiSettings | None = None, clock: Callable[[], float] =
             "scope": claims["scope"],
         }
 
+    def _bearer(authorization: str | None) -> str:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(401, "missing_token", headers={"WWW-Authenticate": "Bearer"})
+        return authorization[7:]
+
+    def _local_claims(token: str) -> Claims:
+        try:
+            claims: Claims = jwt.decode(
+                token,
+                key,
+                algorithms=["HS256"],
+                audience=settings.audience,
+                options={"verify_exp": False, "verify_iat": False, "verify_nbf": False},
+            )
+        except jwt.PyJWTError as exc:
+            raise HTTPException(401, "invalid_token", headers={"WWW-Authenticate": "Bearer"}) from exc
+        if claims["exp"] <= clock():
+            raise HTTPException(401, "token_expired", headers={"WWW-Authenticate": "Bearer"})
+        return claims
+
     def require_scope(needed: str) -> Callable[..., Any]:
         async def dep(authorization: Annotated[str | None, Header()] = None) -> Claims:
-            if not authorization or not authorization.startswith("Bearer "):
-                raise HTTPException(401, "missing_token", headers={"WWW-Authenticate": "Bearer"})
-            try:
-                claims: Claims = jwt.decode(
-                    authorization[7:],
-                    key,
-                    algorithms=["HS256"],
-                    audience=settings.audience,
-                    options={"verify_exp": False, "verify_iat": False, "verify_nbf": False},
-                )
-            except jwt.PyJWTError as exc:
-                raise HTTPException(401, "invalid_token", headers={"WWW-Authenticate": "Bearer"}) from exc
-            if claims["exp"] <= clock():
-                raise HTTPException(401, "token_expired", headers={"WWW-Authenticate": "Bearer"})
-            if needed not in str(claims.get("scope", "")).split():
-                raise HTTPException(403, "insufficient_scope")
+            token = _bearer(authorization)
+            if verifier is None:
+                claims = _local_claims(token)
+                if needed not in str(claims.get("scope", "")).split():
+                    raise HTTPException(403, "insufficient_scope")
+            else:
+                try:
+                    principal = await verifier.verify(token)
+                except AuthError as exc:
+                    raise HTTPException(
+                        exc.status, exc.code.value, headers={"WWW-Authenticate": "Bearer"}
+                    ) from exc
+                if needed not in principal.scopes:
+                    raise HTTPException(403, "insufficient_scope")
+                role = settings.role_for_scope.get(needed)
+                if role and role not in principal.roles_for(settings.audience):
+                    raise HTTPException(403, "insufficient_role")
+                claims = {"sub": principal.subject, "azp": principal.client_id}
             limiter.check(str(claims["sub"]))
             return claims
 

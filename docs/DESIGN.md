@@ -66,7 +66,7 @@ Rules that keep it honest:
 |---|---|---|
 | OAuth2, token management | Gateway is an OAuth 2.1 resource server: JWT signature, issuer, audience and expiry checked against Keycloak JWKS | `tests/unit/core/test_jwt_verifier.py`, integration tests against real Keycloak |
 | PKCE | MCP client signs in with auth code + PKCE (S256) | Integration test and recorded demo |
-| OBO | Gateway exchanges the planner's token for a partner-audience token (RFC 8693), so the partner sees the planner's own scopes | Integration test: planner without `swap.write` cannot swap even though the gateway could |
+| OBO | Gateway exchanges the planner's token for a partner-audience token (RFC 8693) carrying the planner's own identity and roles; the gateway never requests a scope the user's token lacks (Keycloak would grant it, see ADR 0003) | `test_viewer_cannot_swap_even_with_the_scope`, `test_gateway_refuses_to_upscope`, `test_keycloak_alone_would_upscope` |
 | Service principals / M2M | Client credentials for system-to-system calls | `ClientCredentials` in `core/partner_http.py` |
 | Least privilege | Per-tool scopes plus per-client entitlements (allowed tools, quotas, markets) | Scope-violation test suite |
 | Secrets management | `SecretStr` settings from env / Key Vault; nothing in code; gitleaks in pre-commit and CI | `test_secrets_never_leak_through_settings_repr`, CI secret scan |
@@ -94,7 +94,7 @@ Rules that keep it honest:
 | Workflow | Trigger | Jobs |
 |---|---|---|
 | `ci.yml` | every push and PR | ruff + format check, strict mypy, pytest with 85 % coverage gate, bandit, pip-audit, gitleaks, Docker build + smoke test + Trivy scan |
-| `integration.yml` (Day 2) | PR and main | Docker Compose up (Keycloak, mock API, gateway), end-to-end auth, OBO, scope and webhook tests |
+| `integration.yml` | PR and main | Docker Compose up (Keycloak 26.8.2, mock API), PKCE, token checks, OBO, scope and role tests, demo run. Gateway and webhook tests join in later steps |
 | `sandbox.yml` (Day 5) | nightly + manual | Contract tests against the real Duffel test API using the `DUFFEL_TEST_TOKEN` secret |
 | `evals.yml` (Day 6) | manual + on eval-result commits | Small-model smoke eval on CPU; checks committed Kaggle GPU eval results against thresholds and posts a summary |
 | `release.yml` (Day 7) | tag `v*` | Build and push images to GHCR with SBOM and provenance |
