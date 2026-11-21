@@ -15,8 +15,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 |---|---|---|
 | 1 | Core + plugin structure, resilient partner client, mock crew-roster API, CI (lint, strict types, tests, security, image scan) | Done |
 | 2 | Keycloak: JWT/JWKS verification, PRM (RFC 9728), PKCE sign-in, OBO token exchange (RFC 8693), integration CI | Done |
-| 3 | Entitlements, rate limits, HMAC signing, safe logging, audit chain, metrics | Next |
-| 4 | MCP server + crew tools, human approval on writes, raw JSON-RPC tests, agent | |
+| 3 | Tool guard: per-client entitlements, rate limits and quotas, HMAC-signed partner calls, Duffel-compatible webhook verification, redacted JSON logs, HMAC-chained audit log, Prometheus metrics | Done |
+| 4 | MCP server + crew tools, human approval on writes, raw JSON-RPC tests, agent | Next |
 | 5 | Booking plugin on Duffel: quirks, webhook signature verification | |
 | 6 | "Never say confirmed" guard, tool-description variants, evals | |
 | 7 | Kaggle eval run, dashboards, release | |
@@ -29,7 +29,9 @@ Open in a GitHub Codespace (Code, Codespaces, Create codespace on main). Setup r
 make check        # lint, strict mypy, unit tests with coverage, security scans
 make up           # start Keycloak + mock crew-roster API, wait until healthy
 make integration  # tests against real Keycloak: PKCE, token checks, OBO, roles
-make demo         # watch it: sign in, exchange, read, swap, and the refusals
+make demo         # Step 2: sign in, exchange, read, swap, and the refusals
+make demo-guard   # Step 3: entitlements, rate limits, redacted logs, audit chain, metrics
+make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
 
@@ -49,6 +51,18 @@ crewgate --(OBO token)--> partner API: needs the scope AND the user's role
 A scope says what the app may ask for. A role says what this person may do. The partner needs both,
 so an over-permissive app registration can't let a viewer make changes. See
 [ADR 0003](docs/adr/0003-scopes-roles-and-obo.md) for why the gateway also blocks up-scoping itself.
+
+## What every tool call goes through
+
+`ToolGuard.run` is the only way to call a tool ([ADR 0004](docs/adr/0004-tool-guard-audit-and-logs.md)):
+
+1. **Entitlement:** may this client app use this tool, in this market? (`config/entitlements.toml`, deny by default)
+2. **Scope:** did the user grant the scope the tool needs?
+3. **Rate limits:** per user per minute, per app per minute, per app per day, with `Retry-After` and `RateLimit-*` headers
+4. **Run** the plugin, whose partner calls are OBO-authorised and HMAC-signed (method, path, body, timestamp, nonce)
+
+Every outcome lands in the HMAC-chained audit log (arguments stored as a SHA-256 digest, never raw) and in
+Prometheus metrics. Logs are JSON with tokens removed and personal data replaced by keyed pseudonyms.
 ```
 
 ## Layout

@@ -5,6 +5,7 @@ Behaves like a strict third-party API so the crew plugin is tested against real 
 - scope checks per endpoint (roster.read, swap.write)
 - per-client rate limiting that returns 429 with Retry-After
 - cursor pagination with a capped page size
+- HMAC mode: every call must be signed by the gateway (method, path, body, timestamp, nonce)
 - OIDC mode: trusts Keycloak tokens and enforces scope AND user role, so an app scope alone
   never lets a user do something their role forbids. A real partner would bring its own JWT
   library; the mock reuses crewgate's verifier to stay small.
@@ -23,8 +24,10 @@ import jwt
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from crewgate.core.auth import AuthError, JwksCache, TokenVerifier
+from crewgate.core.signing import REQUEST_HEADER, RequestVerifier, SignatureError
 
 from .data import build_dataset
 from .settings import ApiSettings
@@ -69,16 +72,64 @@ def _decode_cursor(cursor: str) -> int:
         raise HTTPException(400, "invalid cursor") from exc
 
 
+class SignatureMiddleware:
+    """Checks X-Crewgate-Signature over the raw bytes, then hands the same bytes to the app.
+
+    It has to be ASGI middleware: by the time a FastAPI dependency runs, form and JSON bodies
+    may already have been parsed and the raw stream is gone.
+    """
+
+    def __init__(self, app: ASGIApp, verifier: RequestVerifier) -> None:
+        self.app, self.verifier = app, verifier
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] == "/health":
+            await self.app(scope, receive, send)
+            return
+        body, more = b"", True
+        while more:
+            message = await receive()
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+        query = scope.get("query_string", b"").decode()
+        target = scope["path"] + (f"?{query}" if query else "")
+        headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
+        try:
+            self.verifier.verify(headers.get(REQUEST_HEADER.lower()), scope["method"], target, body)
+        except SignatureError as exc:
+            await JSONResponse({"detail": exc.reason.value}, status_code=401)(scope, receive, send)
+            return
+
+        replayed = False
+
+        async def replay() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+
 def create_app(
     settings: ApiSettings | None = None,
     clock: Callable[[], float] = time.time,
     verifier: TokenVerifier | None = None,
 ) -> FastAPI:
     settings = settings or ApiSettings()
+    signatures = (
+        RequestVerifier(settings.hmac_secrets, settings.signature_tolerance_seconds, clock)
+        if settings.hmac_secrets
+        else None
+    )
     if settings.auth_mode == "oidc" and verifier is None:
         jwks = JwksCache(settings.oidc_jwks_url, httpx.AsyncClient(timeout=5.0))
         verifier = TokenVerifier(settings.oidc_issuer, settings.audience, jwks)
+
     app = FastAPI(title="Mock Crew Roster API")
+    if signatures is not None:
+        app.add_middleware(SignatureMiddleware, verifier=signatures)
     crew, roster = build_dataset()
     crew_by_id = {c["crew_id"]: c for c in crew}
     swaps: dict[str, dict[str, Any]] = {}

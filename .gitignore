@@ -11,3 +11,4 @@ junit.xml
 requirements.txt
 evals/results/raw/
 .DS_Store
+var/

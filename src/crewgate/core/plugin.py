@@ -19,6 +19,7 @@ class ToolSpec:
     required_scope: str  # e.g. "roster.read"
     handler: ToolHandler
     writes: bool = False  # write tools need human approval before they run
+    market_bound: bool = False  # the call must name a market, checked against entitlements
 
 
 class Plugin(Protocol):

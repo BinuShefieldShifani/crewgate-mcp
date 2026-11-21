@@ -22,6 +22,7 @@ import httpx
 from pydantic import SecretStr
 
 from ..errors import ErrorCategory, PartnerError
+from ..metrics import GatewayMetrics
 from .errors import AuthError
 from .principal import Principal
 
@@ -43,7 +44,9 @@ class TokenExchanger:
         refresh_margin_seconds: float = 30.0,
         max_cache_entries: int = 1024,
         clock: Callable[[], float] = time.time,
+        metrics: GatewayMetrics | None = None,
     ) -> None:
+        self.metrics = metrics
         self.http, self.token_url = http, token_url
         self.client_id, self.client_secret = client_id, client_secret
         self.margin, self.max_entries, self.clock = refresh_margin_seconds, max_cache_entries, clock
@@ -57,6 +60,7 @@ class TokenExchanger:
         wanted = frozenset(scopes)
         missing = wanted - principal.scopes
         if missing:
+            self._count(audience, "refused_upscope")
             raise AuthError.insufficient_scope(
                 " ".join(sorted(wanted)), f"user token lacks scope: {' '.join(sorted(missing))}"
             )
@@ -68,13 +72,22 @@ class TokenExchanger:
             if hit and not force and self.clock() < hit[1] - self.margin:
                 self._cache.move_to_end(key)
                 return hit[0]
-            token, expires_at = await self._request(subject, audience, wanted)
+            try:
+                token, expires_at = await self._request(subject, audience, wanted)
+            except (AuthError, PartnerError):
+                self._count(audience, "error")
+                raise
+            self._count(audience, "ok")
             # A partner token must never outlive the user's own session.
             self._cache[key] = (token, min(expires_at, principal.expires_at))
             self._cache.move_to_end(key)
             while len(self._cache) > self.max_entries:
                 self._cache.popitem(last=False)
             return token
+
+    def _count(self, audience: str, outcome: str) -> None:
+        if self.metrics is not None:
+            self.metrics.token_exchanges.labels(audience, outcome).inc()
 
     async def _request(self, subject: str, audience: str, scopes: frozenset[str]) -> tuple[str, float]:
         data = {

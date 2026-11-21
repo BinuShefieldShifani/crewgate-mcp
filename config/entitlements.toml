@@ -1,0 +1,26 @@
+# Per-caller entitlements, keyed by the OAuth client id ("azp" in the token).
+# Anything not listed here is refused. Patterns use shell-style wildcards ("crew.*").
+
+[clients.crewgate-mcp-client]
+# The planner-facing agent used in demos and tests.
+tools = ["crew.*", "booking.*"]
+markets = ["SE", "NO", "DK", "FI"]
+per_user_per_minute = 30
+per_client_per_minute = 300
+daily_quota = 10000
+
+[clients.booking-assistant-se]
+# A booking-only assistant for the Swedish market. No crew data.
+tools = ["booking.*"]
+markets = ["SE"]
+per_user_per_minute = 20
+per_client_per_minute = 200
+daily_quota = 5000
+
+[clients.roster-dashboard]
+# Read-only reporting app: two read tools, nothing else.
+tools = ["crew.list_crew", "crew.get_roster"]
+markets = ["*"]
+per_user_per_minute = 60
+per_client_per_minute = 600
+daily_quota = 20000

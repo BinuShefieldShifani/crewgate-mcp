@@ -83,3 +83,63 @@ async def test_unknown_crew_is_404(raw_http):
         "/swaps", json={"requester_id": "C0001", "partner_id": "C9999", "date": "x"}, headers=h
     )
     assert r.status_code == 404
+
+
+# ---- HMAC request signatures --------------------------------------------------------------
+
+
+def _signed_app(clock):  # type: ignore[no-untyped-def]
+    from pydantic import SecretStr
+
+    from mock_roster_api.app import create_app
+    from mock_roster_api.settings import ApiSettings
+
+    return create_app(ApiSettings(hmac_secrets=[SecretStr("dev-only-hmac-secret")]), clock=clock)
+
+
+async def test_signed_client_calls_are_accepted(clock):  # type: ignore[no-untyped-def]
+    import httpx
+
+    from crewgate.plugins.crew.client import RosterClient
+    from crewgate.plugins.crew.config import CrewSettings
+
+    transport = httpx.ASGITransport(app=_signed_app(clock))
+    async with RosterClient(CrewSettings(api_base_url="http://mock"), transport=transport, clock=clock) as c:
+        assert len([x async for x in c.iter_crew(page_size=50)]) == 120  # GET with a query string
+        assert (await c.request_swap("C0001", "C0002", "2026-12-03"))[
+            "status"
+        ] == "pending_approval"  # POST body
+
+
+async def test_unsigned_tampered_and_replayed_calls_are_refused(clock):  # type: ignore[no-untyped-def]
+    import httpx
+    from pydantic import SecretStr
+
+    from crewgate.core.signing import REQUEST_HEADER, RequestSigner
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_signed_app(clock)), base_url="http://mock"
+    ) as http:
+        assert (await http.get("/health")).status_code == 200  # health checks stay open
+        unsigned = await http.post("/oauth/token", data={"grant_type": "client_credentials"})
+        assert unsigned.status_code == 401 and unsigned.json()["detail"] == "missing_signature"
+
+        body = b"grant_type=client_credentials&client_id=crewgate-agent&client_secret=dev-only-secret"
+        header = RequestSigner(SecretStr("dev-only-hmac-secret"), clock=clock).header(
+            "POST", "/oauth/token", body
+        )
+        form = {"content-type": "application/x-www-form-urlencoded", REQUEST_HEADER: header}
+        assert (await http.post("/oauth/token", content=body, headers=form)).status_code == 200
+
+        replay = await http.post("/oauth/token", content=body, headers=form)
+        assert replay.json()["detail"] == "replayed"
+
+        fresh = RequestSigner(SecretStr("dev-only-hmac-secret"), clock=clock).header(
+            "POST", "/oauth/token", body
+        )
+        tampered = await http.post(
+            "/oauth/token",
+            content=body.replace(b"crewgate-agent", b"readonly-agent"),
+            headers={**form, REQUEST_HEADER: fresh},
+        )
+        assert tampered.json()["detail"] == "signature_mismatch"

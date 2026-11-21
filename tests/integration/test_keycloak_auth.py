@@ -1,6 +1,7 @@
 """Sign-in, token checks and OBO against a real Keycloak. These prove the realm config, not just our code."""
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -16,6 +17,7 @@ from crewgate.plugins.crew.config import CrewSettings
 from .conftest import REDIRECT, ROSTER, LoginFn
 
 pytestmark = pytest.mark.integration
+ENTITLEMENTS = Path(__file__).resolve().parents[2] / "config" / "entitlements.toml"
 PrincipalFor = Callable[..., Awaitable[Principal]]
 
 
@@ -186,3 +188,64 @@ async def test_partner_rejects_passthrough_of_the_users_token(
     user_token = (await login("anna"))["access_token"]
     r = await http.get(f"{ROSTER}/crew", headers={"Authorization": f"Bearer {user_token}"})
     assert r.status_code == 401
+
+
+# ---- signed partner traffic and the full guard (Step 3) ----------------------------------
+
+
+async def test_partner_refuses_unsigned_calls_even_with_a_valid_obo_token(
+    principal_for: PrincipalFor, exchanger: TokenExchanger, http: httpx.AsyncClient
+) -> None:
+    obo = await exchanger.exchange(await principal_for("anna"), "crew-roster-api", ["roster.read"])
+    r = await http.get(f"{ROSTER}/crew", headers={"Authorization": f"Bearer {obo}"})
+    assert r.status_code == 401 and r.json()["detail"] == "missing_signature"
+
+
+async def test_guarded_tool_calls_with_real_users(
+    principal_for: PrincipalFor, exchanger: TokenExchanger
+) -> None:
+    from typing import Any
+
+    from pydantic import SecretStr
+
+    from crewgate.core.audit import AuditLog, MemorySink, verify_chain
+    from crewgate.core.entitlements import EntitlementPolicy
+    from crewgate.core.guard import GuardDenied, ToolGuard
+    from crewgate.core.metrics import GatewayMetrics
+    from crewgate.core.plugin import ToolSpec
+    from crewgate.core.ratelimit import RateLimiter
+
+    async def get_roster(p: Principal, crew_id: str) -> Any:
+        async with roster(exchanger, p, ["roster.read"]) as client:
+            return await client.get_roster(crew_id)
+
+    async def propose_swap(p: Principal, requester_id: str, partner_id: str, day: str) -> Any:
+        async with roster(exchanger, p, ["roster.read", "swap.write"]) as client:
+            return await client.request_swap(requester_id, partner_id, day)
+
+    read = ToolSpec("crew.get_roster", "Read one roster", "roster.read", get_roster)
+    swap = ToolSpec("crew.propose_swap", "Propose a swap", "swap.write", propose_swap, writes=True)
+    key = SecretStr("dev-only-audit-key")
+    sink, metrics = MemorySink(), GatewayMetrics()
+    policy = EntitlementPolicy.from_toml(ENTITLEMENTS)
+    guard = ToolGuard(policy, RateLimiter(), AuditLog(key, sink), metrics)
+
+    anna = await principal_for("anna")
+    assert (await guard.run(anna, read, {"crew_id": "C0001"}))["crew_id"] == "C0001"
+    assert (
+        await guard.run(anna, swap, {"requester_id": "C0001", "partner_id": "C0002", "day": "2026-12-03"})
+    )["status"] == "pending_approval"
+
+    reader = await principal_for("anna", "openid roster.read")  # signed in without swap.write
+    with pytest.raises(GuardDenied) as denied:
+        await guard.run(reader, swap, {"requester_id": "C0001", "partner_id": "C0002", "day": "2026-12-03"})
+    assert denied.value.reason == "insufficient_scope"
+
+    erik = await principal_for("erik")  # has the scope, lacks the role: the partner says no
+    with pytest.raises(PartnerError):
+        await guard.run(erik, swap, {"requester_id": "C0001", "partner_id": "C0002", "day": "2026-12-03"})
+
+    outcomes = [line.split('"outcome":"')[1].split('"')[0] for line in sink.lines]
+    assert outcomes == ["ok", "ok", "-", "error:forbidden"]
+    assert verify_chain(sink.lines, key).ok
+    assert "C0001" not in "".join(sink.lines)  # arguments are digested, not stored
