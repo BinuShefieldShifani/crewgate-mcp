@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard audit-verify integration
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp gateway audit-verify integration
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen
@@ -27,7 +27,7 @@ security:
 
 check: lint type cov security   ## everything CI runs, except the image scan
 
-up:           ## start Keycloak + mock crew API, wait until both are healthy
+up:           ## start Keycloak, mock crew API and the gateway, wait until all are healthy
 	docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
 
 down:
@@ -38,6 +38,12 @@ logs:
 
 demo:         ## Step 2: PKCE sign-in, OBO exchange, role enforcement (needs make up)
 	uv run python scripts/demo_obo.py
+
+demo-mcp:     ## Step 4: the MCP server over raw JSON-RPC, write approval by a human (needs make up)
+	uv run python scripts/demo_mcp.py
+
+gateway:      ## run the gateway on your machine instead of in Docker (stack minus gateway must be up)
+	uv run python -m crewgate.server
 
 demo-guard:   ## Step 3: entitlements, scopes, rate limits, signing, redacted logs, audit chain, metrics
 	uv run python scripts/demo_guard.py

@@ -18,6 +18,7 @@ class Principal:
     roles: Mapping[str, frozenset[str]]  # what the user may do, per resource ("resource_access")
     expires_at: float
     token: SecretStr = field(repr=False)  # kept for OBO exchange, never logged
+    auth_time: float | None = None  # when the person last actually signed in (not a token refresh)
 
     @classmethod
     def from_claims(cls, claims: Mapping[str, Any], token: str) -> "Principal":
@@ -35,6 +36,7 @@ class Principal:
             roles=roles,
             expires_at=float(claims["exp"]),
             token=SecretStr(token),
+            auth_time=float(claims["auth_time"]) if claims.get("auth_time") is not None else None,
         )
 
     def roles_for(self, resource: str) -> frozenset[str]:

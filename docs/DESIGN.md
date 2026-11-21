@@ -132,7 +132,7 @@ All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy r
 | Sat 21 | 0-1 | Codespace, repo restructured into core + plugins, CI pipeline green |
 | Sun 22 | 2 | Keycloak realm, JWT/JWKS verifier, PKCE sign-in, OBO token exchange, integration workflow |
 | Mon 23 | 3 | Entitlements, gateway rate limits, HMAC signing, safe logging, audit chain, metrics |
-| Tue 24 | 4 | MCP server with crew tools, human approval on writes, raw JSON-RPC tests, LangGraph agent |
+| Tue 24 | 4 | MCP server with crew tools, out-of-band human approval on writes, raw JSON-RPC tests (agent moved to Step 6, next to the evals that need an LLM) |
 | Wed 25 | 5 | Booking plugin on Duffel: search, offers, seat maps, bags, quirk handling, webhook verification |
-| Thu 26 | 6 | Confirmation guard, tool-description variants, eval harness |
+| Thu 26 | 6 | Confirmation guard, LangGraph agent, tool-description variants, eval harness |
 | Fri 27 | 7 | Kaggle eval run, Grafana dashboard, load test numbers, release, README and pitch |

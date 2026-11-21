@@ -224,7 +224,9 @@ async def test_guarded_tool_calls_with_real_users(
             return await client.request_swap(requester_id, partner_id, day)
 
     read = ToolSpec("crew.get_roster", "Read one roster", "roster.read", get_roster)
-    swap = ToolSpec("crew.propose_swap", "Propose a swap", "swap.write", propose_swap, writes=True)
+    # Called straight through guard.run to show its checks. The real crew.propose_swap is a write
+    # tool: through the MCP server it needs human approval first (see make demo-mcp).
+    swap = ToolSpec("crew.propose_swap", "Propose a swap", "swap.write", propose_swap)
     key = SecretStr("dev-only-audit-key")
     sink, metrics = MemorySink(), GatewayMetrics()
     policy = EntitlementPolicy.from_toml(ENTITLEMENTS)

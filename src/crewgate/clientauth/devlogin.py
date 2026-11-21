@@ -23,6 +23,23 @@ class LoginError(Exception):
     pass
 
 
+async def submit_login_form(
+    http: httpx.AsyncClient, login_page: httpx.Response, username: str, password: str
+) -> httpx.Response:
+    """Fill in Keycloak's login form the way a browser would. Returns the redirect response."""
+    match = _FORM_ACTION.search(login_page.text)
+    if login_page.status_code != 200 or not match:
+        raise LoginError(f"no login form (status {login_page.status_code})")
+    # Python's cookie jar drops cookies set for "localhost", so send the session cookies by hand.
+    cookie = "; ".join(f"{k}={v}" for k, v in login_page.cookies.items())
+    return await http.post(
+        html.unescape(match.group(1)),
+        data={"username": username, "password": password},
+        headers={"Cookie": cookie},
+        follow_redirects=False,
+    )
+
+
 async def headless_login(
     http: httpx.AsyncClient,
     server: AuthServerMetadata,
@@ -33,6 +50,7 @@ async def headless_login(
     password: str,
     scopes: Iterable[str],
     resource: str | None = None,
+    client_secret: str | None = None,
 ) -> dict[str, Any]:
     pkce = PkcePair.generate()
     state = secrets.token_urlsafe(16)
@@ -46,18 +64,7 @@ async def headless_login(
         resource=resource,
     )
     page = await http.get(url, follow_redirects=False)
-    match = _FORM_ACTION.search(page.text)
-    if page.status_code != 200 or not match:
-        raise LoginError(f"no login form (status {page.status_code})")
-
-    # Python's cookie jar drops cookies set for "localhost", so send the session cookies by hand.
-    cookie = "; ".join(f"{k}={v}" for k, v in page.cookies.items())
-    answer = await http.post(
-        html.unescape(match.group(1)),
-        data={"username": username, "password": password},
-        headers={"Cookie": cookie},
-        follow_redirects=False,
-    )
+    answer = await submit_login_form(http, page, username, password)
     location = answer.headers.get("location", "")
     query = dict(parse_qsl(urlsplit(location).query))
     if answer.status_code not in (302, 303) or not location.startswith(redirect_uri):
@@ -75,4 +82,5 @@ async def headless_login(
         redirect_uri=redirect_uri,
         pkce=pkce,
         resource=resource,
+        client_secret=client_secret,
     )

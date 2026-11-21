@@ -52,17 +52,27 @@ async def test_network_error_retried_then_mapped():
     assert e.value.category is ErrorCategory.UPSTREAM_UNAVAILABLE and len(calls) == 2
 
 
-async def test_retry_after_is_capped_and_bad_value_tolerated():
+async def test_retry_after_beyond_budget_fails_fast_instead_of_blocking():
+    pc, calls = client_for(
+        [httpx.Response(429, headers={"Retry-After": "28"}), httpx.Response(200, json={})],
+        policy=RetryPolicy(max_retry_after_seconds=5),
+    )
+    with pytest.raises(PartnerError) as e:
+        await pc.request("GET", "/x")
+    assert e.value.category is ErrorCategory.RATE_LIMITED and len(calls) == 1 and pc.retry_log == []
+
+
+async def test_retry_after_within_budget_is_honoured_and_bad_values_tolerated():
     pc, _ = client_for(
         [
-            httpx.Response(429, headers={"Retry-After": "9999"}),
+            httpx.Response(429, headers={"Retry-After": "3"}),
             httpx.Response(429, headers={"Retry-After": "soon"}),
             httpx.Response(200, json={}),
         ],
         policy=RetryPolicy(max_retry_after_seconds=5),
     )
     await pc.request("GET", "/x")
-    assert [e.waited for e in pc.retry_log] == [5, 1.0]
+    assert [e.waited for e in pc.retry_log] == [3.0, 1.0]
 
 
 @pytest.mark.parametrize(

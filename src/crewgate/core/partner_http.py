@@ -111,6 +111,8 @@ class ClientCredentials:
 @dataclass
 class RetryPolicy:
     max_retries: int = 4
+    # Longest Retry-After we will sit through. A partner asking for more gets an immediate
+    # rate_limited error instead: an agent's tool call can't block for half a minute.
     max_retry_after_seconds: float = 30.0
     backoff_base_seconds: float = 1.0
     backoff_cap_seconds: float = 16.0
@@ -166,7 +168,10 @@ class PartnerClient:
                 await self.auth.headers(force_refresh=True)
                 continue
             if resp.status_code == 429 and attempt < self.policy.max_retries:
-                wait = min(_retry_after(resp), self.policy.max_retry_after_seconds)
+                wait = _retry_after(resp)
+                if wait > self.policy.max_retry_after_seconds:
+                    self._count_retry("429_over_budget")
+                    raise PartnerError(ErrorCategory.RATE_LIMITED, "rate_limited", 429)
                 self.retry_log.append(RetryEvent(429, wait))
                 self._count_retry("429")
                 log.warning("partner_rate_limited", extra={"path": path, "wait": wait})

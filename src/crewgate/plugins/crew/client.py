@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from crewgate.core.metrics import GatewayMetrics
-from crewgate.core.partner_http import AuthStrategy, ClientCredentials, PartnerClient
+from crewgate.core.partner_http import AuthStrategy, ClientCredentials, PartnerClient, RetryPolicy
 from crewgate.core.signing import RequestSigner, SigningAuth
 
 from .config import CrewSettings
@@ -33,7 +33,10 @@ class RosterClient:
         self.auth: AuthStrategy = auth or ClientCredentials(
             self.http, s.token_url, s.client_id, s.client_secret, s.scopes, clock=clock
         )
-        self.partner = PartnerClient(self.http, self.auth, sleep=sleep, name="crew-roster", metrics=metrics)
+        policy = RetryPolicy(max_retry_after_seconds=s.max_retry_after_seconds)
+        self.partner = PartnerClient(
+            self.http, self.auth, policy=policy, sleep=sleep, name="crew-roster", metrics=metrics
+        )
 
     async def close(self) -> None:
         await self.http.aclose()

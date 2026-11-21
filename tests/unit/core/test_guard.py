@@ -154,3 +154,16 @@ async def test_whole_session_leaves_a_valid_chain(env: Env) -> None:
     assert verify_chain(env.sink.lines, KEY).ok
     assert env.metrics.value("crewgate_audit_records_total") == 3
     assert b"crewgate_tool_calls_total" in env.metrics.exposition()
+
+
+async def test_run_refuses_write_tools_so_there_is_no_back_door(env: Env) -> None:
+    spec = env.tool(name="crew.propose_swap", scope="roster.read", writes=True, summarize=lambda a: "s")
+    with pytest.raises(GuardDenied) as err:
+        await env.guard.run(principal(), spec, {})
+    assert (err.value.status, err.value.reason) == (409, "approval_required")
+    assert env.calls == [] and env.audit()[0]["reason"] == "approval_required"
+
+
+async def test_propose_is_only_for_write_tools(env: Env) -> None:
+    with pytest.raises(ValueError, match="not a write tool"):
+        await env.guard.propose(principal(), env.tool(), {})

@@ -3,7 +3,7 @@
 Built Wed 25 to Thu 26.
 """
 
-from crewgate.core.plugin import ToolSpec
+from crewgate.core.plugin import PluginContext, ToolSpec
 
 
 class BookingPlugin:
@@ -13,5 +13,5 @@ class BookingPlugin:
         return []
 
 
-def build() -> BookingPlugin:
+def build(ctx: PluginContext | None = None) -> BookingPlugin:
     return BookingPlugin()

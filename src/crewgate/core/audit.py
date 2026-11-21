@@ -29,6 +29,7 @@ GENESIS = "0" * 64
 class Decision(StrEnum):
     ALLOWED = "allowed"
     DENIED = "denied"
+    PENDING_APPROVAL = "pending_approval"
 
 
 @dataclass(frozen=True)

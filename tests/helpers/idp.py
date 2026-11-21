@@ -56,6 +56,8 @@ class FakeIdp:
     exchange_calls: list[dict[str, str]] = field(default_factory=list)
     exchange_response: Callable[[dict[str, str]], httpx.Response] | None = None
     partner_ttl: int = 300
+    auth_codes: dict[str, dict[str, Any]] = field(default_factory=dict)  # code -> token kwargs
+    token_requests: list[httpx.Request] = field(default_factory=list)
 
     # ---- tokens -------------------------------------------------------------------------
     def token(
@@ -103,6 +105,12 @@ class FakeIdp:
             return httpx.Response(200, json={"keys": [k.jwk for k in self.keys]})
         if str(request.url) == TOKEN_URL:
             form = dict(parse_qsl(request.content.decode()))
+            self.token_requests.append(request)
+            if form.get("grant_type") == "authorization_code":
+                spec = self.auth_codes.pop(form.get("code", ""), None)
+                if spec is None:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                return httpx.Response(200, json={"access_token": self.token(**spec), "expires_in": 300})
             self.exchange_calls.append(form)
             if self.exchange_response:
                 return self.exchange_response(form)
