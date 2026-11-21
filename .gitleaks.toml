@@ -1,0 +1,9 @@
+title = "crewgate gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Dev-only placeholder values used by local runs and tests. Real secrets come from env vars."
+regexes = ['''dev-only-[a-z0-9-]+''']
+paths = ['''uv\.lock''']

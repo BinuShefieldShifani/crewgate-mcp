@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-type:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+
+  test:
+    name: Unit tests and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run pytest --cov --cov-report=xml --cov-report=term --junitxml=junit.xml
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "### Coverage" >> "$GITHUB_STEP_SUMMARY"
+          uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            coverage.xml
+            junit.xml
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Bandit (medium and above)
+        run: uv run bandit -ll -c pyproject.toml -r src services
+      - name: Dependency audit
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt > requirements.txt
+          uv run pip-audit -r requirements.txt --progress-spinner off
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build and scan images
+    runs-on: ubuntu-latest
+    needs: [lint-type, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build mock roster API image
+        run: docker build -f services/mock_roster_api/Dockerfile -t crewgate/mock-roster:${{ github.sha }} .
+      - name: Smoke test container
+        run: |
+          docker run -d --name roster -p 8001:8001 crewgate/mock-roster:${{ github.sha }}
+          for i in $(seq 1 20); do curl -fs http://localhost:8001/health && break; sleep 1; done
+          curl -fs http://localhost:8001/health | grep ok
+      # Not using aquasecurity/trivy-action: its version tags were force-pushed to malware in
+      # March 2026 (GHSA-69fq-xp46-6x23). We run a pinned Trivy image that Aqua lists as clean.
+      - name: Trivy image scan
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/aquasecurity/trivy:0.69.2 image \
+            --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --no-progress \
+            crewgate/mock-roster:${{ github.sha }}
