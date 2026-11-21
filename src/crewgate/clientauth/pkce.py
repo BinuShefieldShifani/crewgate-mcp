@@ -142,7 +142,9 @@ async def exchange_code(
     redirect_uri: str,
     pkce: PkcePair,
     resource: str | None = None,
+    client_secret: str | None = None,
 ) -> dict[str, Any]:
+    """Public clients send only the PKCE verifier; confidential clients also authenticate."""
     data = {
         "grant_type": "authorization_code",
         "client_id": client_id,
@@ -152,7 +154,10 @@ async def exchange_code(
     }
     if resource:
         data["resource"] = resource
-    resp = await http.post(token_endpoint, data=data)
+    if client_secret:
+        resp = await http.post(token_endpoint, data=data, auth=(client_id, client_secret))
+    else:
+        resp = await http.post(token_endpoint, data=data)
     if resp.status_code != 200:
         try:
             error = str(resp.json().get("error", "unknown_error"))

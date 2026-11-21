@@ -1,4 +1,4 @@
-# Local and CI stack. Grows each step: Keycloak + mock API (Step 2), gateway + Prometheus + Grafana (Steps 3-4).
+# Local and CI stack: Keycloak, mock crew API, the crewgate MCP gateway. Prometheus + Grafana join in Step 7.
 # Run from repo root:  make up    (same as: docker compose -f deploy/docker-compose.yml up -d --build --wait)
 name: crewgate
 
@@ -47,8 +47,47 @@ services:
       MOCKAPI_OIDC_JWKS_URL: http://keycloak:8080/realms/crewgate/protocol/openid-connect/certs
       # Every call must be HMAC-signed by the gateway. A JSON list, so keys can be rotated.
       MOCKAPI_HMAC_SECRETS: '${MOCKAPI_HMAC_SECRETS:-["dev-only-hmac-secret"]}'
+      # Per user per minute. 429 handling is covered by unit tests; here demos and tests share one user.
+      MOCKAPI_RATE_LIMIT_PER_MINUTE: "600"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/gateway/Dockerfile
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mock-roster:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      CREWGATE_PUBLIC_URL: http://localhost:8000
+      # Tokens say iss=localhost:8080; the gateway fetches keys and exchanges tokens over the
+      # internal network name, the same split as the mock API.
+      CREWGATE_AUTH_ISSUER: http://localhost:8080/realms/crewgate
+      CREWGATE_AUTH_JWKS_URL: http://keycloak:8080/realms/crewgate/protocol/openid-connect/certs
+      CREWGATE_AUTH_TOKEN_URL: http://keycloak:8080/realms/crewgate/protocol/openid-connect/token
+      CREWGATE_AUTH_RESOURCE: http://localhost:8000/mcp
+      CREWGATE_AUTH_CLIENT_SECRET: ${CREWGATE_AUTH_CLIENT_SECRET:-dev-only-gateway-secret}
+      CREWGATE_APPROVALS_CLIENT_SECRET: ${CREWGATE_APPROVALS_CLIENT_SECRET:-dev-only-approvals-secret}
+      CREWGATE_APPROVALS_AUTHORIZE_URL: http://localhost:8080/realms/crewgate/protocol/openid-connect/auth
+      CREWGATE_AUDIT_KEY: ${CREWGATE_AUDIT_KEY:-dev-only-audit-key}
+      CREWGATE_PSEUDONYM_KEY: ${CREWGATE_PSEUDONYM_KEY:-dev-only-pseudonym-key}
+      CREW_API_BASE_URL: http://mock-roster:8001
+      CREW_HMAC_SECRET: ${CREW_HMAC_SECRET:-dev-only-hmac-secret}
+    volumes:
+      - gateway-audit:/app/var
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  gateway-audit:

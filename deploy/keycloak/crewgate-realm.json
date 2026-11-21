@@ -8,20 +8,29 @@
   "bruteForceProtected": true,
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
-  "defaultDefaultClientScopes": ["basic", "profile"],
+  "defaultDefaultClientScopes": [
+    "basic",
+    "profile"
+  ],
   "defaultOptionalClientScopes": [],
   "clientScopes": [
     {
       "name": "basic",
       "description": "sub and auth_time claims",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "sub",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-sub-mapper",
-          "config": {"access.token.claim": "true", "introspection.token.claim": "true"}
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         },
         {
           "name": "auth_time",
@@ -42,7 +51,10 @@
       "name": "profile",
       "description": "preferred_username only; names and emails stay out of tokens",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "username",
@@ -63,7 +75,10 @@
       "name": "roles",
       "description": "client roles of the token's audience, and the audience they imply",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "client roles",
@@ -81,7 +96,10 @@
           "name": "audience resolve",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-resolve-mapper",
-          "config": {"access.token.claim": "true", "introspection.token.claim": "true"}
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -89,19 +107,28 @@
       "name": "roster.read",
       "description": "Read crew lists and rosters",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "true"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      }
     },
     {
       "name": "swap.write",
       "description": "Request duty swaps",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "true"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      }
     },
     {
       "name": "crewgate-gateway-audience",
       "description": "Puts the gateway in aud, so only crewgate accepts tokens issued to the MCP client",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "aud crewgate-gateway",
@@ -130,11 +157,56 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
-      "redirectUris": ["http://127.0.0.1:8765/callback", "http://localhost:8765/callback"],
+      "redirectUris": [
+        "http://127.0.0.1:8765/callback",
+        "http://localhost:8765/callback"
+      ],
       "webOrigins": [],
-      "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+"},
-      "defaultClientScopes": ["basic", "profile", "crewgate-gateway-audience"],
-      "optionalClientScopes": ["roster.read", "swap.write"]
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "crewgate-gateway-audience"
+      ],
+      "optionalClientScopes": [
+        "roster.read",
+        "swap.write"
+      ]
+    },
+    {
+      "clientId": "crewgate-approvals",
+      "name": "crewgate approvals (human sign-in)",
+      "description": "Confidential client used only by the gateway's approval pages. The agent never holds its secret, so it can't approve its own writes.",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-approvals-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "http://localhost:8000/approvals/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "crewgate-gateway-audience"
+      ],
+      "optionalClientScopes": [
+        "roster.read",
+        "swap.write"
+      ]
     },
     {
       "clientId": "crewgate-gateway",
@@ -150,9 +222,18 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
-      "attributes": {"standard.token.exchange.enabled": "true"},
-      "defaultClientScopes": ["basic", "profile", "roles"],
-      "optionalClientScopes": ["roster.read", "swap.write"]
+      "attributes": {
+        "standard.token.exchange.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "roster.read",
+        "swap.write"
+      ]
     },
     {
       "clientId": "crew-roster-api",
@@ -173,8 +254,14 @@
   "roles": {
     "client": {
       "crew-roster-api": [
-        {"name": "roster-reader", "description": "May read crew lists and rosters"},
-        {"name": "swap-requester", "description": "May request duty swaps"}
+        {
+          "name": "roster-reader",
+          "description": "May read crew lists and rosters"
+        },
+        {
+          "name": "swap-requester",
+          "description": "May request duty swaps"
+        }
       ]
     }
   },
@@ -186,8 +273,19 @@
       "firstName": "Anna",
       "lastName": "Planner",
       "email": "anna@crew.example",
-      "credentials": [{"type": "password", "value": "dev-only-anna", "temporary": false}],
-      "clientRoles": {"crew-roster-api": ["roster-reader", "swap-requester"]},
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-anna",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "crew-roster-api": [
+          "roster-reader",
+          "swap-requester"
+        ]
+      },
       "requiredActions": []
     },
     {
@@ -197,8 +295,18 @@
       "firstName": "Erik",
       "lastName": "Viewer",
       "email": "erik@crew.example",
-      "credentials": [{"type": "password", "value": "dev-only-erik", "temporary": false}],
-      "clientRoles": {"crew-roster-api": ["roster-reader"]},
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-erik",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "crew-roster-api": [
+          "roster-reader"
+        ]
+      },
       "requiredActions": []
     }
   ]

@@ -11,12 +11,21 @@ async def test_pagination_returns_every_crew_member_once(crew_env):
     assert len(ids) == 120 and len(set(ids)) == 120
 
 
-async def test_backs_off_on_429_and_finishes(crew_env):
-    client = crew_env(api={"rate_limit_per_minute": 2})
+async def test_backs_off_on_429_and_finishes_when_the_budget_allows(crew_env):
+    # a batch-style caller that can afford to wait out the partner's one-minute window
+    client = crew_env(api={"rate_limit_per_minute": 2}, crew={"max_retry_after_seconds": 120})
     ids = [c["crew_id"] async for c in client.iter_crew(page_size=40)]  # 3 calls, limit 2/min
     assert len(ids) == 120
     waits = [e.waited for e in client.partner.retry_log if e.status == 429]
     assert waits and all(w >= 1 for w in waits)
+
+
+async def test_interactive_default_fails_fast_instead_of_waiting_30s(crew_env):
+    client = crew_env(api={"rate_limit_per_minute": 2})
+    with pytest.raises(PartnerError) as e:
+        _ = [c async for c in client.iter_crew(page_size=40)]
+    assert e.value.category is ErrorCategory.RATE_LIMITED
+    assert client.partner.retry_log == []  # it did not sit and wait
 
 
 async def test_gives_up_after_retry_budget_with_category(crew_env):

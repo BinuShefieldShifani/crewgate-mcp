@@ -28,7 +28,7 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --frozen
-      - name: Start Keycloak and mock crew API
+      - name: Start Keycloak, mock crew API and gateway
         run: docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
       - name: Integration tests
         run: uv run pytest -m integration tests/integration -v --junitxml=integration.xml
@@ -38,6 +38,12 @@ jobs:
         run: uv run python scripts/demo_guard.py
       - name: Audit chain check (same as make audit-verify)
         run: uv run python scripts/verify_audit.py var/audit.jsonl
+      - name: Demo, Step 4 (same as make demo-mcp)
+        run: uv run python scripts/demo_mcp.py
+      - name: Gateway audit chain (the gateway's own file, inside its container)
+        run: |
+          docker compose -f deploy/docker-compose.yml cp gateway:/app/var/audit.jsonl var/gateway-audit.jsonl
+          uv run python scripts/verify_audit.py var/gateway-audit.jsonl
       - name: Stack logs
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs --no-color

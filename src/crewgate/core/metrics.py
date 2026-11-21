@@ -50,6 +50,9 @@ class GatewayMetrics:
         self.signature_failures = Counter(
             "crewgate_signature_failures_total", "Rejected signatures", ["source", "reason"], registry=r
         )
+        self.approvals = Counter(
+            "crewgate_approvals_total", "Write approvals by outcome", ["tool", "outcome"], registry=r
+        )
         self.audit_records = Counter("crewgate_audit_records_total", "Audit records written", registry=r)
         self.in_flight = Gauge("crewgate_tool_calls_in_flight", "Tool calls running now", registry=r)
 

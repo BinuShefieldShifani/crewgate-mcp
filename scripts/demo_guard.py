@@ -84,7 +84,9 @@ async def main() -> None:
                 return await c.request_swap(requester_id, partner_id, day)
 
         read = ToolSpec("crew.get_roster", "Read a roster", "roster.read", get_roster)
-        swap = ToolSpec("crew.propose_swap", "Propose a swap", "swap.write", propose_swap, writes=True)
+        # Called straight through guard.run to show its checks. The real crew.propose_swap is a
+        # write tool: through the MCP server it needs human approval first (see make demo-mcp).
+        swap = ToolSpec("crew.propose_swap", "Propose a swap", "swap.write", propose_swap)
         guard = ToolGuard(
             EntitlementPolicy.from_toml(REPO / "config" / "entitlements.toml"),
             RateLimiter(),

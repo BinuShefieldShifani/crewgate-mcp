@@ -11,5 +11,7 @@ class CrewSettings(BaseSettings):
     client_secret: SecretStr = SecretStr("dev-only-secret")
     scopes: str = "roster.read swap.write"
     timeout_seconds: float = 10.0
+    # Interactive tools: wait out a partner's Retry-After only if it is short.
+    max_retry_after_seconds: float = 5.0
     # Shared secret for HMAC request signing (X-Crewgate-Signature). None turns signing off.
     hmac_secret: SecretStr | None = SecretStr("dev-only-hmac-secret")

@@ -22,7 +22,7 @@ def _register_fake(name, plugin_name, tool_names):
         def tools(self):
             return [ToolSpec(t, "d", "x.read", _h) for t in tool_names]
 
-    mod.build = P
+    mod.build = lambda ctx=None: P()
     sys.modules[f"crewgate.plugins.{name}"] = mod
 
 
@@ -47,6 +47,21 @@ def test_duplicate_tool_rejected():
     _register_fake("fake_b", "fake", ["fake.t"])
     with pytest.raises(PluginLoadError, match="duplicate"):
         load_plugins(["fake_a", "fake_b"])
+
+
+def test_write_tool_without_summary_rejected():
+    mod = types.ModuleType("crewgate.plugins.fake_write")
+
+    class P:
+        name = "fake_write"
+
+        def tools(self):
+            return [ToolSpec("fake_write.do", "d", "x.write", _h, writes=True)]
+
+    mod.build = lambda ctx=None: P()
+    sys.modules["crewgate.plugins.fake_write"] = mod
+    with pytest.raises(PluginLoadError, match="summarize"):
+        load_plugins(["fake_write"])
 
 
 def test_secrets_never_leak_through_settings_repr():
