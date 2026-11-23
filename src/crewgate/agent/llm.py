@@ -149,11 +149,59 @@ class OpenAICompatibleChat:
         self.temperature, self.seed = temperature, seed
         self._sleep, self._clock, self._last = sleep, clock, -1e9
         self._lock = asyncio.Lock()
-        self._http = httpx.AsyncClient(
-            timeout=timeout,
-            transport=transport,
-            headers={"authorization": f"Bearer {api_key}", "content-type": "application/json"},
-        )
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "content-type": "application/json",
+            "accept": "application/json",
+            # Only gzip: httpx also offers zstd and brotli when those packages happen to be
+            # installed, which makes the response encoding depend on the environment.
+            "accept-encoding": "gzip",
+        }
+        if "models.github.ai" in self.url:
+            headers["x-github-api-version"] = "2022-11-28"  # as GitHub's REST docs send it
+        self._http = httpx.AsyncClient(timeout=timeout, transport=transport, headers=headers)
+
+    async def probe(self) -> dict[str, Any]:
+        """One tiny request shaped like a real one (a tool, seed, tool_choice). For diagnosing a
+        provider before spending a day's quota. The prompt is fixed, so the reply is safe to print."""
+        tool = {
+            "type": "function",
+            "function": {
+                "name": "get_time",
+                "description": "Get the current time in a city.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            },
+        }
+        body: dict[str, Any] = {
+            "model": self.name,
+            "messages": [{"role": "user", "content": "What time is it in Gothenburg? Use the tool."}],
+            "temperature": self.temperature,
+            "tools": [tool],
+            "tool_choice": "auto",
+        }
+        if self.seed is not None:
+            body["seed"] = self.seed
+        resp = await self._http.post(self.url, json=body)
+        out: dict[str, Any] = {"url": self.url, "model": self.name, "response": describe(resp)}
+        try:
+            data = resp.json()
+        except ValueError:
+            out.update(ok=False, problem="body is not JSON", body_start=resp.text[:300])
+            return out
+        if resp.status_code != 200:
+            out.update(ok=False, problem=_error_code(resp))
+            return out
+        try:
+            c = parse_completion(data)
+        except LLMError as exc:
+            out.update(ok=False, problem=str(exc), keys=sorted(data) if isinstance(data, dict) else None)
+            return out
+        out.update(ok=True, tool_calls=[(t.name, t.arguments) for t in c.tool_calls], content=c.content)
+        return out
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -187,7 +235,18 @@ class OpenAICompatibleChat:
                 continue
             latency = (time.perf_counter() - started) * 1000
             if resp.status_code == 200:
-                completion = parse_completion(resp.json(), latency)
+                try:
+                    data = resp.json()
+                except ValueError:
+                    # A 200 with an empty or non-JSON body: say what arrived, never crash the run.
+                    log.warning("llm_bad_body", extra={"model": self.name, "response": describe(resp)})
+                    if attempt < self.retries:
+                        await self._sleep(2.0 * (attempt + 1))
+                        continue
+                    raise LLMError(
+                        f"model provider sent a body that is not JSON ({describe(resp)})"
+                    ) from None
+                completion = parse_completion(data, latency)
                 log.info(
                     "llm_call",
                     extra={
@@ -210,6 +269,13 @@ class OpenAICompatibleChat:
                 continue
             raise LLMError(f"model provider returned {resp.status_code}: {_error_code(resp)}")
         raise LLMError("model call failed")  # pragma: no cover  (the loop always returns or raises)
+
+
+def describe(resp: httpx.Response) -> str:
+    """What a response was, without its content: safe to log."""
+    ct = resp.headers.get("content-type") or "none"
+    enc = resp.headers.get("content-encoding") or "none"
+    return f"HTTP {resp.status_code}, content-type {ct}, content-encoding {enc}, {len(resp.content)} bytes"
 
 
 def _error_code(resp: httpx.Response) -> str:

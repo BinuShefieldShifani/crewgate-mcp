@@ -103,6 +103,9 @@ async def run_variant(
                 break
             except LLMError as exc:
                 rows.append({"id": case["id"], "category": case["category"], "error": str(exc)})
+                if [r for r in rows[-3:] if "error" in r] == rows[-3:] and len(rows) >= 3:
+                    stopped = f"3 model errors in a row, last: {exc}"  # don't burn the day's quota
+                    break
                 continue
             first = c.tool_calls[0] if c.tool_calls else None
             got = first.name if first else "none"

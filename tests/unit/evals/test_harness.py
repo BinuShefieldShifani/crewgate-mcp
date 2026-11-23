@@ -220,3 +220,35 @@ async def test_runner_model_suites(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert code == 0 and not json.loads((tmp_path / "selection.json").read_text())["complete"]
     with pytest.raises(SystemExit):
         await runner.main(["scenarios", "--only", "nope", "--out", str(tmp_path)])
+
+
+async def test_selection_stops_after_three_model_errors_in_a_row() -> None:
+    class Broken(Keyword):
+        async def complete(self, messages: Sequence[Message], tools: Sequence[ToolDef]) -> Completion:
+            self.calls += 1
+            raise LLMError("model provider sent a body that is not JSON")
+
+    model = Broken()
+    r = await run_selection(model, Budget(500))
+    assert model.calls == 3 and not r["complete"]
+    assert "3 model errors in a row" in (r["variants"][0]["stopped"] or "")
+
+
+async def test_runner_probe(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    class Probe:
+        async def probe(self) -> dict[str, Any]:
+            return {"ok": False, "problem": "body is not JSON"}
+
+        async def aclose(self) -> None:
+            return None
+
+    class Settings:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        def chat_model(self) -> Any:
+            return Probe()
+
+    monkeypatch.setattr(runner, "AgentSettings", Settings)
+    assert await runner.main(["probe"]) == 1
+    assert "body is not JSON" in capsys.readouterr().out

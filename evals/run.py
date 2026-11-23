@@ -44,7 +44,7 @@ def publish(name: str, result: dict[str, Any], markdown: str, out: Path) -> None
 async def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.ERROR)  # the attack evals trigger expected warnings
     p = argparse.ArgumentParser(prog="evals.run")
-    p.add_argument("suite", choices=["offline", "selection", "scenarios", "all"])
+    p.add_argument("suite", choices=["offline", "selection", "scenarios", "all", "probe"])
     p.add_argument("--model", help="e.g. openai/gpt-4o-mini (default: AGENT_LLM_MODEL)")
     p.add_argument("--variants", default=",".join(VARIANTS), help="for selection, comma separated")
     p.add_argument("--variant", default="guided", help="descriptions the scenarios run with")
@@ -65,6 +65,13 @@ async def main(argv: list[str] | None = None) -> int:
     settings = AgentSettings(**({"llm_model": a.model} if a.model else {}))
     model = settings.chat_model()
     budget = Budget(a.budget)
+    if a.suite == "probe":
+        try:
+            result = await model.probe()
+        finally:
+            await model.aclose()
+        print(json.dumps(result, indent=2))
+        return 0 if result["ok"] else 1
     try:
         if a.suite in ("scenarios", "all"):
             only = [x for x in a.only.split(",") if x]
