@@ -212,3 +212,52 @@ def test_settings_fall_back_to_github_token(monkeypatch: pytest.MonkeyPatch) -> 
     assert s.chat_model().name == "openai/gpt-4o-mini"
     monkeypatch.setenv("AGENT_LLM_API_KEY", "dev-only-explicit")
     assert AgentSettings(_env_file=None).api_key() == "dev-only-explicit"  # type: ignore[call-arg]
+
+
+async def test_headers_pin_the_encoding_and_github_api_version() -> None:
+    model, seen = chat([httpx.Response(200, json=OK)])
+    await model.complete([], [])
+    h = seen[0].headers
+    assert h["accept-encoding"] == "gzip" and h["accept"] == "application/json"
+    assert "x-github-api-version" not in h
+    gh = OpenAICompatibleChat(
+        base_url="https://models.github.ai/inference", model="m", api_key="dev-only-key"
+    )
+    assert gh._http.headers["x-github-api-version"] == "2022-11-28"
+    await gh.aclose()
+
+
+async def test_a_200_that_is_not_json_is_retried_then_reported() -> None:
+    model, seen = chat([httpx.Response(200, content=b""), httpx.Response(200, json=OK)], min_interval=0)
+    assert (await model.complete([], [])).tool_calls
+    assert len(seen) == 2
+    model, _ = chat(
+        [httpx.Response(200, content=b"", headers={"content-type": "text/plain"})] * 2,
+        min_interval=0,
+        retries=1,
+    )
+    with pytest.raises(
+        LLMError, match=r"not JSON \(HTTP 200, content-type text/plain, content-encoding none, 0 bytes\)"
+    ):
+        await model.complete([], [])
+
+
+@pytest.mark.parametrize(
+    ("response", "ok", "problem"),
+    [
+        (httpx.Response(200, json=OK), True, None),
+        (httpx.Response(200, text="<html>hi</html>"), False, "body is not JSON"),
+        (httpx.Response(401, json={"error": {"code": "unauthorized"}}), False, "unauthorized"),
+        (httpx.Response(200, json={"weird": 1}), False, "the model returned no choices"),
+    ],
+)
+async def test_probe(response: httpx.Response, ok: bool, problem: str | None) -> None:
+    model, seen = chat([response])
+    out = await model.probe()
+    body = json.loads(seen[0].content)
+    assert body["tools"][0]["function"]["name"] == "get_time" and body["seed"] == 7
+    assert out["ok"] is ok and out.get("problem") == problem
+    if ok:
+        assert out["tool_calls"] == [("crew_list_crew", {"base": "GOT"})]
+    if problem == "body is not JSON":
+        assert out["body_start"] == "<html>hi</html>"

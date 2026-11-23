@@ -59,6 +59,8 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --frozen --all-extras
+      - name: Probe the model endpoint (1 call; stops here if the provider answers badly)
+        run: uv run python -m evals.run probe
       - name: Run ${{ env.SUITE }}
         run: |
           uv run python -m evals.run "$SUITE" --variants "$VARIANTS" --variant "$VARIANT" --budget "$BUDGET"
