@@ -18,8 +18,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 3 | Tool guard: per-client entitlements, rate limits and quotas, HMAC-signed partner calls, Duffel-compatible webhook verification, redacted JSON logs, HMAC-chained audit log, Prometheus metrics | Done |
 | 4 | MCP server (streamable HTTP, stateless, MCP SDK 2.3 low-level API): PRM, structured tools, out-of-band human approval of writes, raw JSON-RPC tests | Done |
 | 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
-| 6 | LangGraph agent wired to the confirmation guard, tool-description variants, evals | Next |
-| 7 | Kaggle eval run, dashboards, release | |
+| 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on GitHub Models | Done |
+| 7 | Dashboards, load test, release, pitch | Next |
 
 ## Run it
 
@@ -34,6 +34,8 @@ make demo-guard   # Step 3: entitlements, rate limits, redacted logs, audit chai
 make demo-mcp     # Step 4: the MCP server in raw JSON-RPC, and a write a human has to approve
 make demo-booking # Step 5: book on Duffel's real test API (start the stack with DUFFEL_ACCESS_TOKEN set)
 make contract     # contract tests against Duffel's real test API
+make eval-offline # Step 6: guard, attacks, Duffel quirks, gateway overhead (no model)
+make agent        # Step 6: chat with the agent on the running stack (needs GITHUB_TOKEN)
 make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
@@ -112,6 +114,26 @@ Every outcome lands in the HMAC-chained audit log (arguments stored as a SHA-256
 Prometheus metrics. Logs are JSON with tokens removed and personal data replaced by keyed pseudonyms.
 ```
 
+## The agent and the evals
+
+`src/crewgate/agent/` is a LangGraph agent that works only through the gateway, with the official
+MCP client and the signed-in user's token. Its graph is `think -> act -> ... -> guard`, and every
+path ends in `guard`: a draft reply that says a flight is booked is replaced unless the order says
+confirmed ([ADR 0007](docs/adr/0007-agent-graph-and-evals.md)).
+
+The gateway can describe its tools three ways (`CREWGATE_TOOL_DESCRIPTIONS`: `minimal`, `guided`,
+`contract`), and the evals measure which one makes a model pick the right tool. How each suite works
+and why the numbers can be trusted: [docs/evals.md](docs/evals.md).
+
+| Suite | Runs | Target |
+|---|---|---|
+| Guard: 20 over-claiming drafts x 8 unconfirmed situations, 20 honest drafts | every PR | 0 unsafe replies pass |
+| Security: 22 attacks on the gateway | every PR | 22/22 refused, no side effect |
+| Duffel quirks through the gateway | every PR | 11/11 handled |
+| Gateway overhead, partner time subtracted | every PR | p95 under 50 ms |
+| Tool selection, 36 cases x 3 description variants | weekly, GitHub Models | 90% or more on the best variant |
+| Agent scenarios, 10 conversations | weekly, GitHub Models | 0 false "confirmed", 0 orders without approval |
+
 ## Layout
 
 ```
@@ -119,9 +141,10 @@ src/crewgate/core/       shared security and reliability (no domain code)
 src/crewgate/core/auth/  JWT/JWKS verifier, PRM, OBO token exchange
 src/crewgate/clientauth/ MCP client side: discovery, PKCE
 src/crewgate/plugins/    crew, booking
+src/crewgate/agent/      LangGraph agent, model client, reply guard
 services/                mock partner APIs
 deploy/                  docker compose stack, Keycloak realm
-evals/                   tool-selection and guard evals
+evals/                   offline, tool-selection and agent-scenario evals, datasets
 docs/                    design and ADRs
 ```
 

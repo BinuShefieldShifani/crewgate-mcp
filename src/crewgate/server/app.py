@@ -103,7 +103,12 @@ def create_app(
         **({"clock": clock} if clock else {}),
     )
     ctx = PluginContext(
-        exchanger=exchanger, metrics=metrics, approvals=approvals, partner_transport=partner_transport
+        exchanger=exchanger,
+        metrics=metrics,
+        approvals=approvals,
+        audit=audit,
+        partner_transport=partner_transport,
+        description_variant=s.tool_descriptions,
     )
     plugins = load_plugins(["gateway", *[p for p in s.plugins if p != "gateway"]], ctx)
     specs = {spec.name: spec for plugin in plugins for spec in plugin.tools()}

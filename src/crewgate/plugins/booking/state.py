@@ -132,6 +132,10 @@ class BookingStore:
             return None
         return entry.booking
 
+    def all(self) -> list[tuple[str, Booking]]:
+        """(subject, booking) for every attempt, e.g. to check an agent's replies against the truth."""
+        return [(e.subject, e.booking) for e in self._by_id.values()]
+
     def find(
         self, *, booking_id: str | None = None, order_id: str | None = None
     ) -> tuple[str, Booking] | None:

@@ -10,5 +10,6 @@ coverage.xml
 junit.xml
 requirements.txt
 evals/results/raw/
+evals/out/
 .DS_Store
 var/

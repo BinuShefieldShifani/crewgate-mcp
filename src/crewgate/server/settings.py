@@ -3,6 +3,8 @@
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from crewgate.core.descriptions import DEFAULT_VARIANT, Variant
+
 
 class GatewaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CREWGATE_", env_file=".env", extra="ignore")
@@ -12,6 +14,9 @@ class GatewaySettings(BaseSettings):
     public_url: str = "http://localhost:8000"  # what browsers use; approval links are built from it
     mcp_path: str = "/mcp"
     plugins: list[str] = ["crew", "booking"]
+    # How tools are described to models: minimal, guided or contract. See core/descriptions.py
+    # and evals/selection.py, which measures each.
+    tool_descriptions: Variant = DEFAULT_VARIANT
     entitlements_path: str = "config/entitlements.toml"
     audit_path: str = "var/audit.jsonl"
     audit_key: SecretStr = SecretStr("dev-only-audit-key")

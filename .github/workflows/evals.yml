@@ -1,0 +1,69 @@
+name: model-evals
+
+# The evals that need a real model, on GitHub Models with the workflow's own GITHUB_TOKEN
+# (permissions: models: read). No secret to add.
+#
+# The free tier allows about 150 requests a day per low-tier model, so the two suites run on
+# different days: tool selection (3 variants x 36 cases = 108 calls) on Mondays, agent scenarios
+# (~45 calls) on Tuesdays. Run either by hand from the Actions tab: "Run workflow".
+# Not run on pull requests: the offline evals in ci.yml cover every PR for free.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"  # Monday: selection
+    - cron: "17 5 * * 2"  # Tuesday: scenarios
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "selection, scenarios or all"
+        type: choice
+        options: [selection, scenarios, all]
+        default: selection
+      model:
+        description: "GitHub Models id"
+        default: openai/gpt-4o-mini
+      variants:
+        description: "description variants for selection, comma separated"
+        default: minimal,guided,contract
+      variant:
+        description: "description variant the scenarios run with"
+        default: guided
+      budget:
+        description: "max model calls in this run"
+        default: "140"
+
+permissions:
+  contents: read
+  models: read
+
+concurrency:
+  group: model-evals
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    name: Model evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SUITE: ${{ inputs.suite || (github.event.schedule == '17 5 * * 1' && 'selection' || 'scenarios') }}
+      AGENT_LLM_MODEL: ${{ inputs.model || 'openai/gpt-4o-mini' }}
+      VARIANTS: ${{ inputs.variants || 'minimal,guided,contract' }}
+      VARIANT: ${{ inputs.variant || 'guided' }}
+      BUDGET: ${{ inputs.budget || '140' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - name: Run ${{ env.SUITE }}
+        run: |
+          uv run python -m evals.run "$SUITE" --variants "$VARIANTS" --variant "$VARIANT" --budget "$BUDGET"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-evals-${{ env.SUITE }}
+          path: evals/out/

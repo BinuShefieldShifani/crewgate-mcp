@@ -45,6 +45,7 @@ class PluginContext:
     approvals: "ApprovalStore | None" = None
     audit: "AuditLog | None" = None  # for events that don't come from a tool call, e.g. webhooks
     partner_transport: Any = None  # tests only: route partner calls to an in-process app
+    description_variant: str = "guided"  # which tool-description variant to serve (core/descriptions.py)
 
 
 class Plugin(Protocol):

@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from crewgate.core.auth import Principal
+from crewgate.core.descriptions import check_table, describe
 from crewgate.core.errors import ErrorCategory, PartnerError
 from crewgate.core.plugin import PluginContext, ToolSpec
 
@@ -42,32 +43,91 @@ from .schemas import (
 from .state import Booking, BookingState, BookingStore, from_order
 from .webhooks import DuffelWebhooks
 
-DESCRIPTIONS = {
-    "booking.search_flights": (
-        "Search one-way flights between two airports on a date. Returns the cheapest offers with exact "
-        "prices, stops, included bags and whether the fare is refundable. Prices can change: before "
-        "booking, call booking.get_offer with quoted_total to check the price is still the same."
-    ),
-    "booking.get_offer": (
-        "Get the current price and details of one offer: passenger slots, included and extra bags, "
-        "refund and change rules. Pass quoted_total (the price you showed the user) to learn whether "
-        "the price changed. Always do this right before proposing a booking."
-    ),
-    "booking.get_seat_map": (
-        "Check whether seats can be chosen for an offer and what seats cost. Some airlines offer no "
-        "seat selection at all: then say seats are assigned at check-in."
-    ),
-    "booking.book_flight": (
-        "Propose booking an offer for named passengers at an exact price. This does NOT book anything. "
-        "It creates a request a person must approve in their browser, and the gateway checks the price "
-        "again before booking. Never tell the user the flight is booked or confirmed; use "
-        "booking.get_booking and only say confirmed when its 'confirmed' field is true."
-    ),
-    "booking.get_booking": (
-        "Get the real state of a booking attempt: confirmed, pending_confirmation, awaiting_payment, "
-        "outcome_unknown, price_changed, offer_unavailable, cancelled or failed. Its "
-        "what_to_tell_the_user field is the safe thing to say. Only 'confirmed' means booked."
-    ),
+DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "minimal": {
+        "booking.search_flights": "Search flights.",
+        "booking.get_offer": "Get an offer.",
+        "booking.get_seat_map": "Get the seat map for an offer.",
+        "booking.book_flight": "Book a flight.",
+        "booking.get_booking": "Get a booking.",
+    },
+    "guided": {
+        "booking.search_flights": (
+            "Search one-way flights between two airports on a date. Returns the cheapest offers with exact "
+            "prices, stops, included bags and whether the fare is refundable. Prices can change: before "
+            "booking, call booking_get_offer with quoted_total to check the price is still the same."
+        ),
+        "booking.get_offer": (
+            "Get the current price and details of one offer: passenger slots, included and extra bags, "
+            "refund and change rules. Pass quoted_total (the price you showed the user) to learn whether "
+            "the price changed. Always do this right before proposing a booking."
+        ),
+        "booking.get_seat_map": (
+            "Check whether seats can be chosen for an offer and what seats cost. Some airlines offer no "
+            "seat selection at all: then say seats are assigned at check-in."
+        ),
+        "booking.book_flight": (
+            "Propose booking an offer for named passengers at an exact price. This does NOT book anything. "
+            "It creates a request a person must approve in their browser, and the gateway checks the price "
+            "again before booking. Never tell the user the flight is booked or confirmed; use "
+            "booking_get_booking and only say confirmed when its 'confirmed' field is true."
+        ),
+        "booking.get_booking": (
+            "Get the real state of a booking attempt: confirmed, pending_confirmation, awaiting_payment, "
+            "outcome_unknown, price_changed, offer_unavailable, cancelled or failed. Its "
+            "what_to_tell_the_user field is the safe thing to say. Only 'confirmed' means booked."
+        ),
+    },
+    "contract": {
+        "booking.search_flights": (
+            "Search one-way flights for a route and a date.\n"
+            "Use when: the user wants flight options, prices or times between two airports.\n"
+            "Not for: re-checking one offer the user already picked (booking_get_offer), seats "
+            "(booking_get_seat_map), booking (booking_book_flight).\n"
+            "Needs: origin and destination as IATA codes (ARN, GOT, LHR), departure_date YYYY-MM-DD, "
+            "market = the customer's country (SE, NO, DK, FI).\n"
+            "Returns: offers cheapest first, each with offer_id, total_amount, currency, stops, "
+            "included bags and refundability.\n"
+            "Next: before proposing a booking, booking_get_offer with quoted_total."
+        ),
+        "booking.get_offer": (
+            "Fresh price and details of one offer_id from a search.\n"
+            "Use when: the user picked an offer, asks about its bags, refund or change rules, or wants "
+            "to book it.\n"
+            "Not for: finding flights (booking_search_flights), seats (booking_get_seat_map).\n"
+            "Needs: offer_id; quoted_total = the price you showed the user.\n"
+            "Returns: price_check unchanged or changed, passenger slots, included and extra bags.\n"
+            "Next: if the price changed, tell the user the new price and ask before booking."
+        ),
+        "booking.get_seat_map": (
+            "Seat selection for one offer_id.\n"
+            "Use when: the user asks about choosing seats, seat prices or where they will sit.\n"
+            "Not for: bags or price (booking_get_offer).\n"
+            "Needs: offer_id.\n"
+            "Returns: whether seats can be chosen and seat prices. No seat map means seats are "
+            "assigned at check-in."
+        ),
+        "booking.book_flight": (
+            "Propose a booking. It does NOT book: it creates a request a person approves in their browser.\n"
+            "Use when: the user clearly asks to book a specific offer and you have every passenger's "
+            "details.\n"
+            "Not for: checking a price (booking_get_offer) or the state of a booking (booking_get_booking).\n"
+            "Needs: offer_id, expected_total and currency exactly as booking_get_offer returned them, "
+            "market, passengers.\n"
+            "Returns: status awaiting_approval and an approve_url. Nothing is booked yet.\n"
+            "Next: tell the user it awaits their approval. Never say booked or confirmed."
+        ),
+        "booking.get_booking": (
+            "The real state of a booking attempt, read from the airline order.\n"
+            "Use when: the user asks whether a flight is booked, confirmed or ticketed, or for its "
+            "reference, and you have a booking_id.\n"
+            "Not for: a request still awaiting approval with no booking_id yet "
+            "(gateway_approval_status).\n"
+            "Needs: booking_id (bk_...).\n"
+            "Returns: state, confirmed (true only when booked, paid and ticketed), what_to_tell_the_user.\n"
+            "Next: say exactly what what_to_tell_the_user says."
+        ),
+    },
 }
 
 
@@ -194,6 +254,9 @@ class BookingPlugin:
 
     # ---- wiring -----------------------------------------------------------------------------
 
+    def describe(self, tool: str) -> str:
+        return describe(DESCRIPTIONS, tool, self.ctx.description_variant)
+
     def routes(self) -> list[Route]:
         async def receive(request: Request) -> Response:
             status, body = await self.webhooks.handle(
@@ -213,10 +276,10 @@ class BookingPlugin:
                 "The price is checked again before booking."
             )
 
-        return [
+        specs = [
             ToolSpec(
                 "booking.search_flights",
-                DESCRIPTIONS["booking.search_flights"],
+                self.describe("booking.search_flights"),
                 "booking.read",
                 self.search_flights,
                 title="Search flights",
@@ -227,7 +290,7 @@ class BookingPlugin:
             ),
             ToolSpec(
                 "booking.get_offer",
-                DESCRIPTIONS["booking.get_offer"],
+                self.describe("booking.get_offer"),
                 "booking.read",
                 self.get_offer,
                 title="Check an offer",
@@ -237,7 +300,7 @@ class BookingPlugin:
             ),
             ToolSpec(
                 "booking.get_seat_map",
-                DESCRIPTIONS["booking.get_seat_map"],
+                self.describe("booking.get_seat_map"),
                 "booking.read",
                 self.get_seat_map,
                 title="Seat map",
@@ -247,7 +310,7 @@ class BookingPlugin:
             ),
             ToolSpec(
                 "booking.book_flight",
-                DESCRIPTIONS["booking.book_flight"],
+                self.describe("booking.book_flight"),
                 "booking.write",
                 self.book_flight,
                 title="Propose a booking",
@@ -259,7 +322,7 @@ class BookingPlugin:
             ),
             ToolSpec(
                 "booking.get_booking",
-                DESCRIPTIONS["booking.get_booking"],
+                self.describe("booking.get_booking"),
                 "booking.read",
                 self.get_booking,
                 title="Booking status",
@@ -268,6 +331,8 @@ class BookingPlugin:
                 idempotent=True,
             ),
         ]
+        check_table(DESCRIPTIONS, [s.name for s in specs])
+        return specs
 
 
 def _plain(x: Any) -> dict[str, Any]:

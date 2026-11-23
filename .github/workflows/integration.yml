@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  models: read  # Step 6 demo: the agent calls GitHub Models with this workflow's token
 
 concurrency:
   group: integration-${{ github.ref }}
@@ -30,7 +31,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - name: Start Keycloak, mock crew API and gateway
         run: docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
       - name: Integration tests
@@ -46,6 +47,12 @@ jobs:
       - name: Demo, Step 5 (same as make demo-booking, real Duffel sandbox)
         if: env.DUFFEL_ACCESS_TOKEN != ''
         run: uv run python scripts/demo_booking.py
+      - name: Demo, Step 6 (the agent on the real stack, real Keycloak sign-in, GitHub Models)
+        # About two model calls. Never fails the check: a busy free tier is not a code problem.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run python scripts/agent_chat.py --once "Who could cover a captain at Gothenburg on 2026-12-05?"
       - name: Gateway audit chain (the gateway's own file, inside its container)
         run: |
           docker compose -f deploy/docker-compose.yml cp gateway:/app/var/audit.jsonl var/gateway-audit.jsonl
