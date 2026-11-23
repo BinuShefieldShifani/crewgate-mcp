@@ -8,7 +8,16 @@ from typing import Any
 
 import pytest
 
-from crewgate.agent.llm import Completion, LLMError, LLMQuotaExceeded, Message, ToolCall, ToolDef, Usage
+from crewgate.agent.llm import (
+    Completion,
+    LLMError,
+    LLMQuotaExceeded,
+    LLMToolCallFailed,
+    Message,
+    ToolCall,
+    ToolDef,
+    Usage,
+)
 from evals import run as runner
 from evals.common import Budget, BudgetExhausted, load_jsonl, percentile, wilson
 from evals.offline import eval_guard, render_offline, run_offline
@@ -252,3 +261,15 @@ async def test_runner_probe(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
     monkeypatch.setattr(runner, "AgentSettings", Settings)
     assert await runner.main(["probe"]) == 1
     assert "body is not JSON" in capsys.readouterr().out
+
+
+async def test_an_invalid_tool_call_is_scored_wrong() -> None:
+    class Fumbles(Keyword):
+        async def complete(self, messages: Sequence[Message], tools: Sequence[ToolDef]) -> Completion:
+            if "captain" in messages[-1]["content"].lower():
+                raise LLMToolCallFailed("bad call")
+            return await super().complete(messages, tools)
+
+    r = await run_selection(Fumbles(), Budget(500), variants=["guided"])
+    case = next(c for c in r["variants"][0]["cases"] if c["id"] == "crew-list-base")
+    assert case["got"] == "invalid_tool_call" and case["tool_ok"] is False and r["complete"]

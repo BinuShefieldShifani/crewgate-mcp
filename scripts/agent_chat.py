@@ -1,6 +1,6 @@
 """Chat with the crewgate agent against the running stack (make up), with a real model.
 
-    GITHUB_TOKEN=<a token with models:read> uv run python scripts/agent_chat.py
+    AGENT_LLM_API_KEY=<your Groq key> uv run python scripts/agent_chat.py
     uv run python scripts/agent_chat.py --once "Find flights from ARN to LHR on 2026-12-20"
 
 Signs in as the dev-only test user anna (PKCE, real Keycloak), then every message goes through
@@ -45,7 +45,7 @@ async def main() -> None:
     try:
         model = settings.chat_model()
     except LLMError as exc:
-        raise SystemExit(f"{exc}. A GitHub token with models:read works: export GITHUB_TOKEN=...") from None
+        raise SystemExit(f"{exc}. A free Groq key works: export AGENT_LLM_API_KEY=...") from None
     token = await sign_in()
     try:
         async with GatewayTools.connect(

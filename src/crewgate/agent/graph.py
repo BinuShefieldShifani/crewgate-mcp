@@ -21,11 +21,12 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from .llm import ChatModel, Message
+from .llm import ChatModel, Completion, LLMToolCallFailed, Message
 from .prompts import system_prompt
 from .reply_guard import Facts, GuardDecision, facts_from_tool, guard_reply
 from .tools import GatewayTools
 
+TOOL_CALL_FAILED = "Sorry, I made a mistake while working on that. Could you say it again, maybe more simply?"
 OUT_OF_STEPS = (
     "I could not finish this within the allowed number of steps. Nothing new was booked or changed."
 )
@@ -80,7 +81,10 @@ class Agent:
 
     async def _think(self, state: AgentState) -> AgentState:
         messages: list[Message] = [{"role": "system", "content": self.system}, *state.get("messages", [])]
-        c = await self.model.complete(messages, self.tool_defs)
+        try:
+            c = await self.model.complete(messages, self.tool_defs)
+        except LLMToolCallFailed:
+            c = Completion(content=TOOL_CALL_FAILED)  # the turn ends through the guard as usual
         step = {
             "kind": "llm",
             "ms": round(c.latency_ms, 1),

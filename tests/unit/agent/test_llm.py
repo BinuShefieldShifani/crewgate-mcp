@@ -9,6 +9,7 @@ import pytest
 from crewgate.agent.llm import (
     LLMError,
     LLMQuotaExceeded,
+    LLMToolCallFailed,
     OpenAICompatibleChat,
     parse_completion,
     retry_after_seconds,
@@ -204,27 +205,26 @@ def test_needs_a_key() -> None:
         OpenAICompatibleChat(base_url="https://x", model="m", api_key="")
 
 
-def test_settings_fall_back_to_github_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_read_only_their_own_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENT_LLM_API_KEY", raising=False)
-    monkeypatch.setenv("GITHUB_TOKEN", "dev-only-gh")
+    monkeypatch.setenv("GITHUB_TOKEN", "dev-only-gh")  # must never be sent to a model provider
     s = AgentSettings(_env_file=None)  # type: ignore[call-arg]
-    assert s.api_key() == "dev-only-gh"
-    assert s.chat_model().name == "openai/gpt-4o-mini"
+    assert s.api_key() == ""
+    with pytest.raises(LLMError):
+        s.chat_model()
     monkeypatch.setenv("AGENT_LLM_API_KEY", "dev-only-explicit")
-    assert AgentSettings(_env_file=None).api_key() == "dev-only-explicit"  # type: ignore[call-arg]
+    s = AgentSettings(_env_file=None)  # type: ignore[call-arg]
+    model = s.chat_model()
+    assert s.api_key() == "dev-only-explicit" and model.name == "openai/gpt-oss-120b"
+    assert model.url == "https://api.groq.com/openai/v1/chat/completions" and model.reasoning_effort == "low"
 
 
-async def test_headers_pin_the_encoding_and_github_api_version() -> None:
+async def test_headers_pin_the_encoding() -> None:
     model, seen = chat([httpx.Response(200, json=OK)])
     await model.complete([], [])
     h = seen[0].headers
     assert h["accept-encoding"] == "gzip" and h["accept"] == "application/json"
     assert "x-github-api-version" not in h
-    gh = OpenAICompatibleChat(
-        base_url="https://models.github.ai/inference", model="m", api_key="dev-only-key"
-    )
-    assert gh._http.headers["x-github-api-version"] == "2022-11-28"
-    await gh.aclose()
 
 
 async def test_a_200_that_is_not_json_is_retried_then_reported() -> None:
@@ -261,3 +261,28 @@ async def test_probe(response: httpx.Response, ok: bool, problem: str | None) ->
         assert out["tool_calls"] == [("crew_list_crew", {"base": "GOT"})]
     if problem == "body is not JSON":
         assert out["body_start"] == "<html>hi</html>"
+
+
+async def test_reasoning_effort_and_cached_tokens() -> None:
+    usage = {
+        **OK,
+        "usage": {
+            "prompt_tokens": 900,
+            "completion_tokens": 5,
+            "prompt_tokens_details": {"cached_tokens": 800},
+        },
+    }
+    model, seen = chat([httpx.Response(200, json=usage)], reasoning_effort="low")
+    c = await model.complete([], [])
+    assert json.loads(seen[0].content)["reasoning_effort"] == "low"
+    assert c.usage.cached_tokens == 800
+
+
+async def test_an_invalid_tool_call_is_the_models_mistake_not_an_outage() -> None:
+    body = {
+        "error": {"code": "tool_use_failed", "message": "Failed to call a function", "failed_generation": "x"}
+    }
+    model, seen = chat([httpx.Response(400, json=body)], min_interval=0)
+    with pytest.raises(LLMToolCallFailed):
+        await model.complete([], [])
+    assert len(seen) == 1  # not retried

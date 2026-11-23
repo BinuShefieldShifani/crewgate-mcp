@@ -1,7 +1,8 @@
 # Evals: what is measured, how, and why it can be trusted
 
 Three suites. The first needs no model and runs on every pull request. The other two call a real
-model on GitHub Models from GitHub Actions, with the workflow's own token.
+model (`openai/gpt-oss-120b` on Groq's free plan) from GitHub Actions, with the `GROQ_API_KEY`
+repo secret.
 
 | Suite | Model | When | What it answers |
 |---|---|---|---|
@@ -11,8 +12,8 @@ model on GitHub Models from GitHub Actions, with the workflow's own token.
 
 ```bash
 make eval-offline                      # ~30 s, no token
-GITHUB_TOKEN=... make eval-selection   # 108 model calls
-GITHUB_TOKEN=... make eval-scenarios   # ~45 model calls
+AGENT_LLM_API_KEY=... make eval-selection   # 108 model calls
+AGENT_LLM_API_KEY=... make eval-scenarios   # ~45 model calls
 ```
 
 Results land in `evals/out/*.json` (every case, every reply) and `*.md` (the tables), and in the
@@ -103,8 +104,11 @@ model. The safety numbers come from the gateway's own records, not the agent's:
 
 - 36 selection cases and 10 scenarios are enough to compare variants roughly and catch
   regressions, not to claim a precise accuracy. The intervals are printed for that reason.
-- GitHub Models' free tier caps requests (about 15 a minute, 150 a day per low-tier model, 8000
-  input tokens each), which sets the dataset sizes. A paid key or another provider only needs
-  `AGENT_LLM_BASE_URL` and `AGENT_LLM_API_KEY`.
+- Groq's free plan caps each model at 30 requests a minute, 1,000 a day, 8,000 tokens a minute
+  and 200,000 a day, which sets the dataset sizes and the one-suite-a-day schedule. The report
+  shows tokens used and the share served from Groq's prompt cache. Another OpenAI-compatible
+  provider only needs `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL` and `AGENT_LLM_API_KEY`.
+- An invalid tool call from the model (Groq answers 400 `tool_use_failed`) is scored as a wrong
+  answer, not dropped as an error.
 - FakeDuffel follows Duffel's documented responses; the nightly contract tests check the real
   sandbox still behaves that way.

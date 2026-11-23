@@ -1,11 +1,11 @@
 name: model-evals
 
-# The evals that need a real model, on GitHub Models with the workflow's own GITHUB_TOKEN
-# (permissions: models: read). No secret to add.
+# The evals that need a real model, on Groq's free plan (OpenAI-compatible API).
+# Needs one repo secret, GROQ_API_KEY. Without it (forks, Dependabot) the job skips itself.
 #
-# The free tier allows about 150 requests a day per low-tier model, so the two suites run on
-# different days: tool selection (3 variants x 36 cases = 108 calls) on Mondays, agent scenarios
-# (~45 calls) on Tuesdays. Run either by hand from the Actions tab: "Run workflow".
+# Groq's free plan allows 1,000 requests and 200,000 tokens a day per model, so the two suites run
+# on different days: tool selection (3 variants x 36 cases = 108 calls) on Mondays, agent
+# scenarios (~45 calls) on Tuesdays. Run either by hand from the Actions tab: "Run workflow".
 # Not run on pull requests: the offline evals in ci.yml cover every PR for free.
 
 on:
@@ -20,8 +20,8 @@ on:
         options: [selection, scenarios, all]
         default: selection
       model:
-        description: "GitHub Models id"
-        default: openai/gpt-4o-mini
+        description: "Groq model id"
+        default: openai/gpt-oss-120b
       variants:
         description: "description variants for selection, comma separated"
         default: minimal,guided,contract
@@ -30,11 +30,10 @@ on:
         default: guided
       budget:
         description: "max model calls in this run"
-        default: "140"
+        default: "200"
 
 permissions:
   contents: read
-  models: read
 
 concurrency:
   group: model-evals
@@ -44,28 +43,36 @@ jobs:
   evals:
     name: Model evals
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      AGENT_LLM_API_KEY: ${{ secrets.GROQ_API_KEY }}
       SUITE: ${{ inputs.suite || (github.event.schedule == '17 5 * * 1' && 'selection' || 'scenarios') }}
-      AGENT_LLM_MODEL: ${{ inputs.model || 'openai/gpt-4o-mini' }}
+      AGENT_LLM_MODEL: ${{ inputs.model || 'openai/gpt-oss-120b' }}
       VARIANTS: ${{ inputs.variants || 'minimal,guided,contract' }}
       VARIANT: ${{ inputs.variant || 'guided' }}
-      BUDGET: ${{ inputs.budget || '140' }}
+      BUDGET: ${{ inputs.budget || '200' }}
     steps:
+      - name: Skip without a key
+        if: env.AGENT_LLM_API_KEY == ''
+        run: echo "::notice::GROQ_API_KEY is not available to this run; skipping the model evals."
       - uses: actions/checkout@v4
+        if: env.AGENT_LLM_API_KEY != ''
       - uses: astral-sh/setup-uv@v6
+        if: env.AGENT_LLM_API_KEY != ''
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --frozen --all-extras
+      - if: env.AGENT_LLM_API_KEY != ''
+        run: uv sync --frozen --all-extras
       - name: Probe the model endpoint (1 call; stops here if the provider answers badly)
+        if: env.AGENT_LLM_API_KEY != ''
         run: uv run python -m evals.run probe
       - name: Run ${{ env.SUITE }}
+        if: env.AGENT_LLM_API_KEY != ''
         run: |
           uv run python -m evals.run "$SUITE" --variants "$VARIANTS" --variant "$VARIANT" --budget "$BUDGET"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.AGENT_LLM_API_KEY != ''
         with:
           name: model-evals-${{ env.SUITE }}
           path: evals/out/

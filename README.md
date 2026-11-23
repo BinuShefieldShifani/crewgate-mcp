@@ -18,7 +18,7 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 3 | Tool guard: per-client entitlements, rate limits and quotas, HMAC-signed partner calls, Duffel-compatible webhook verification, redacted JSON logs, HMAC-chained audit log, Prometheus metrics | Done |
 | 4 | MCP server (streamable HTTP, stateless, MCP SDK 2.3 low-level API): PRM, structured tools, out-of-band human approval of writes, raw JSON-RPC tests | Done |
 | 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
-| 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on GitHub Models | Done |
+| 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on Groq | Done |
 | 7 | Dashboards, load test, release, pitch | Next |
 
 ## Run it
@@ -35,7 +35,7 @@ make demo-mcp     # Step 4: the MCP server in raw JSON-RPC, and a write a human 
 make demo-booking # Step 5: book on Duffel's real test API (start the stack with DUFFEL_ACCESS_TOKEN set)
 make contract     # contract tests against Duffel's real test API
 make eval-offline # Step 6: guard, attacks, Duffel quirks, gateway overhead (no model)
-make agent        # Step 6: chat with the agent on the running stack (needs GITHUB_TOKEN)
+make agent        # Step 6: chat with the agent on the running stack (needs AGENT_LLM_API_KEY)
 make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
@@ -131,8 +131,8 @@ and why the numbers can be trusted: [docs/evals.md](docs/evals.md).
 | Security: 22 attacks on the gateway | every PR | 22/22 refused, no side effect |
 | Duffel quirks through the gateway | every PR | 11/11 handled |
 | Gateway overhead, partner time subtracted | every PR | p95 under 50 ms |
-| Tool selection, 36 cases x 3 description variants | weekly, GitHub Models | 90% or more on the best variant |
-| Agent scenarios, 10 conversations | weekly, GitHub Models | 0 false "confirmed", 0 orders without approval |
+| Tool selection, 36 cases x 3 description variants | weekly, Groq | 90% or more on the best variant |
+| Agent scenarios, 10 conversations | weekly, Groq | 0 false "confirmed", 0 orders without approval |
 
 ## Layout
 

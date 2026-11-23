@@ -66,11 +66,11 @@ integration:  ## tests against the running stack (needs make up)
 eval-offline: ## Step 6: guard corpus, attacks, Duffel quirks, gateway overhead. No model, ~30 s
 	uv run python -m evals.run offline
 
-eval-selection: ## Step 6: tool-selection accuracy per description variant (GITHUB_TOKEN with models:read)
+eval-selection: ## Step 6: tool-selection accuracy per description variant (AGENT_LLM_API_KEY = your Groq key)
 	uv run python -m evals.run selection --budget 110
 
-eval-scenarios: ## Step 6: agent end-to-end on Duffel's quirk routes (GITHUB_TOKEN with models:read)
+eval-scenarios: ## Step 6: agent end-to-end on Duffel's quirk routes (AGENT_LLM_API_KEY = your Groq key)
 	uv run python -m evals.run scenarios --budget 70
 
-agent:        ## Step 6: chat with the agent against the running stack (make up, GITHUB_TOKEN set)
+agent:        ## Step 6: chat with the agent against the running stack (make up, AGENT_LLM_API_KEY set)
 	uv run python scripts/agent_chat.py
