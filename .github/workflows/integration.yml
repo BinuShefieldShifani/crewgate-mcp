@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  models: read  # Step 6 demo: the agent calls GitHub Models with this workflow's token
 
 concurrency:
   group: integration-${{ github.ref }}
@@ -25,6 +24,7 @@ jobs:
     env:
       # Empty for forks and Dependabot: the booking demo then skips, everything else still runs.
       DUFFEL_ACCESS_TOKEN: ${{ secrets.DUFFEL_TEST_TOKEN }}
+      AGENT_LLM_API_KEY: ${{ secrets.GROQ_API_KEY }}  # empty for forks: the agent demo skips
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -47,11 +47,10 @@ jobs:
       - name: Demo, Step 5 (same as make demo-booking, real Duffel sandbox)
         if: env.DUFFEL_ACCESS_TOKEN != ''
         run: uv run python scripts/demo_booking.py
-      - name: Demo, Step 6 (the agent on the real stack, real Keycloak sign-in, GitHub Models)
+      - name: Demo, Step 6 (the agent on the real stack, real Keycloak sign-in, Groq)
         # About two model calls. Never fails the check: a busy free tier is not a code problem.
+        if: env.AGENT_LLM_API_KEY != ''
         continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run python scripts/agent_chat.py --once "Who could cover a captain at Gothenburg on 2026-12-05?"
       - name: Gateway audit chain (the gateway's own file, inside its container)
         run: |

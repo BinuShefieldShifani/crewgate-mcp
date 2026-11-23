@@ -1,10 +1,10 @@
-"""Chat model client for any OpenAI-compatible chat-completions API. GitHub Models by default.
+"""Chat model client for any OpenAI-compatible chat-completions API. Groq by default.
 
-Why not an SDK: this is ~150 lines over httpx, so every retry and limit is visible and tested.
-GitHub Models' free tier allows about 15 requests a minute and 150 a day per low-tier model, and
-8000 input tokens per request. The client paces itself under the per-minute limit, waits out
-short 429s, and stops with LLMQuotaExceeded when the wait is too long (the daily limit), so an
-eval run ends cleanly with partial results instead of hanging.
+Why not an SDK: this is ~200 lines over httpx, so every retry and limit is visible and tested.
+Groq's free plan allows 30 requests a minute, 1,000 a day, 8,000 tokens a minute and 200,000 a
+day per model. The client paces itself under the per-minute request limit, waits out short 429s
+(the token-per-minute limit sends those), and stops with LLMQuotaExceeded when the wait is too
+long (a daily limit), so an eval run ends cleanly with partial results instead of hanging.
 """
 
 import asyncio
@@ -32,6 +32,11 @@ class LLMQuotaExceeded(LLMError):
     """The provider wants us to wait longer than we are willing to (usually the daily limit)."""
 
 
+class LLMToolCallFailed(LLMError):
+    """The model tried to call a tool but wrote an invalid call (Groq: 400 tool_use_failed).
+    That is the model's mistake, not an outage: evals score it as a wrong answer."""
+
+
 @dataclass(frozen=True)
 class ToolCall:
     id: str
@@ -45,6 +50,7 @@ class ToolCall:
 class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_tokens: int = 0  # prompt tokens served from the provider's cache
 
 
 @dataclass(frozen=True)
@@ -99,10 +105,15 @@ def parse_completion(body: dict[str, Any], latency_ms: float = 0.0) -> Completio
             )
         )
     usage = body.get("usage") or {}
+    details = usage.get("prompt_tokens_details") or {}
     return Completion(
         content=choice.get("content"),
         tool_calls=tuple(calls),
-        usage=Usage(int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)),
+        usage=Usage(
+            int(usage.get("prompt_tokens") or 0),
+            int(usage.get("completion_tokens") or 0),
+            int(details.get("cached_tokens") or 0),
+        ),
         latency_ms=latency_ms,
         model=str(body.get("model") or ""),
     )
@@ -133,20 +144,21 @@ class OpenAICompatibleChat:
         model: str,
         api_key: str,
         timeout: float = 60.0,
-        min_interval: float = 4.2,
+        min_interval: float = 2.2,
         max_wait: float = 65.0,
-        retries: int = 3,
+        retries: int = 5,
         temperature: float = 0.0,
         seed: int | None = 7,
+        reasoning_effort: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Any] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not api_key:
-            raise LLMError("no API key for the model provider (set AGENT_LLM_API_KEY or GITHUB_TOKEN)")
+            raise LLMError("no API key for the model provider (set AGENT_LLM_API_KEY)")
         self.name, self.url = model, base_url.rstrip("/") + "/chat/completions"
         self.min_interval, self.max_wait, self.retries = min_interval, max_wait, retries
-        self.temperature, self.seed = temperature, seed
+        self.temperature, self.seed, self.reasoning_effort = temperature, seed, reasoning_effort
         self._sleep, self._clock, self._last = sleep, clock, -1e9
         self._lock = asyncio.Lock()
         headers = {
@@ -157,8 +169,6 @@ class OpenAICompatibleChat:
             # installed, which makes the response encoding depend on the environment.
             "accept-encoding": "gzip",
         }
-        if "models.github.ai" in self.url:
-            headers["x-github-api-version"] = "2022-11-28"  # as GitHub's REST docs send it
         self._http = httpx.AsyncClient(timeout=timeout, transport=transport, headers=headers)
 
     async def probe(self) -> dict[str, Any]:
@@ -185,6 +195,8 @@ class OpenAICompatibleChat:
         }
         if self.seed is not None:
             body["seed"] = self.seed
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         resp = await self._http.post(self.url, json=body)
         out: dict[str, Any] = {"url": self.url, "model": self.name, "response": describe(resp)}
         try:
@@ -221,6 +233,8 @@ class OpenAICompatibleChat:
         }
         if self.seed is not None:
             body["seed"] = self.seed
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         if tools:
             body["tools"], body["tool_choice"] = list(tools), "auto"
         for attempt in range(self.retries + 1):
@@ -264,6 +278,8 @@ class OpenAICompatibleChat:
                     raise LLMQuotaExceeded(f"rate limited by the model provider, retry in {wait:.0f}s")
                 await self._sleep(wait)
                 continue
+            if resp.status_code == 400 and _error_code(resp) == "tool_use_failed":
+                raise LLMToolCallFailed("the model wrote an invalid tool call")
             if resp.status_code >= 500 and attempt < self.retries:
                 await self._sleep(2.0 * (attempt + 1))
                 continue

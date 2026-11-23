@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from crewgate.agent.llm import ChatModel, LLMError, LLMQuotaExceeded, Message
+from crewgate.agent.llm import ChatModel, Completion, LLMError, LLMQuotaExceeded, LLMToolCallFailed, Message
 from crewgate.agent.prompts import system_prompt
 from crewgate.agent.tools import GatewayTools
 from crewgate.core.descriptions import VARIANTS
@@ -95,9 +95,12 @@ async def run_variant(
         tool_chars = len(json.dumps(defs))
         for case in cases:
             messages = [system, *expand(case.get("context", [])), {"role": "user", "content": case["prompt"]}]
+            invalid = False
             try:
                 budget.take()
                 c = await model.complete(messages, defs)
+            except LLMToolCallFailed:  # the model's mistake: scored as wrong, not as an outage
+                c, invalid = Completion(content=None), True
             except (BudgetExhausted, LLMQuotaExceeded) as exc:
                 stopped = str(exc)
                 break
@@ -108,7 +111,7 @@ async def run_variant(
                     break
                 continue
             first = c.tool_calls[0] if c.tool_calls else None
-            got = first.name if first else "none"
+            got = first.name if first else ("invalid_tool_call" if invalid else "none")
             tool_ok = got in case["expect"]
             args_ok = None
             if tool_ok and first is not None and case.get("args"):
@@ -123,6 +126,8 @@ async def run_variant(
                     "tool_ok": tool_ok,
                     "args_ok": args_ok,
                     "prompt_tokens": c.usage.prompt_tokens,
+                    "cached_tokens": c.usage.cached_tokens,
+                    "completion_tokens": c.usage.completion_tokens,
                     "latency_ms": round(c.latency_ms, 1),
                     "reply": (c.content or "")[:200] if not first else None,
                 }
@@ -164,6 +169,10 @@ def summarize(
         "confusions": confusions.most_common(),
         "tool_definitions_chars": tool_chars,
         "mean_prompt_tokens": round(sum(r["prompt_tokens"] for r in scored) / len(scored)) if scored else 0,
+        "tokens_used": sum(r["prompt_tokens"] + r["completion_tokens"] for r in scored),
+        "cached_share": (
+            sum(r["cached_tokens"] for r in scored) / max(1, sum(r["prompt_tokens"] for r in scored))
+        ),
         "latency_p50_ms": percentile([r["latency_ms"] for r in scored], 50),
         "latency_p95_ms": percentile([r["latency_ms"] for r in scored], 95),
         "cases": rows,
@@ -227,8 +236,8 @@ def render_selection(r: dict[str, Any]) -> str:
         f"## Tool selection ({r['model']}, {r['cases']} cases, temperature 0)",
         "",
         "| Variant | Tool right | 95% CI | Args right | Called a tool when it shouldn't | Missed a tool | "
-        "Tool list size | p95 latency |",
-        "|---|---|---|---|---|---|---|---|",
+        "Tool list size | Tokens used (cached) | p95 latency |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for v in r["variants"]:
         lo, hi = v["accuracy_ci95"]
@@ -239,7 +248,7 @@ def render_selection(r: dict[str, Any]) -> str:
         lines.append(
             f"| {v['variant']}{flag} | **{pct(v['accuracy'])}** | {pct(lo)} to {pct(hi)} | {args} | {ftr} | "
             f"{mtr} | {v['tool_definitions_chars']} chars, ~{v['mean_prompt_tokens']} prompt tokens | "
-            f"{v['latency_p95_ms']:.0f} ms |"
+            f"{v['tokens_used']:,} ({pct(v['cached_share'])}) | {v['latency_p95_ms']:.0f} ms |"
         )
     if r["best"]:
         best = next(v for v in r["variants"] if v["variant"] == r["best"])

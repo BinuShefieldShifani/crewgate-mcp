@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 from crewgate.agent import Agent, GatewayTools
-from crewgate.agent.graph import OUT_OF_STEPS
-from crewgate.agent.llm import Completion, ToolCall
+from crewgate.agent.graph import OUT_OF_STEPS, TOOL_CALL_FAILED
+from crewgate.agent.llm import Completion, LLMToolCallFailed, ToolCall
 from crewgate.agent.tools import compact_schema, inline_refs
 from tests.helpers.scripted_llm import ScriptedChat, call, find, last_tool, say
 from tests.helpers.stack import MCP_URL, gateway_stack
@@ -181,3 +181,16 @@ async def test_scopes_are_enforced_on_calls_not_hidden_from_the_list() -> None:
         assert len(tools.tools) == 10
         out = await tools.call("booking_search_flights", SEARCH)
         assert out.is_error and out.data["error"] == "insufficient_scope"
+
+
+async def test_an_invalid_tool_call_ends_the_turn_politely() -> None:
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+
+        def broken(_: Any) -> Completion:
+            raise LLMToolCallFailed("bad call")
+
+        turn = await Agent(ScriptedChat([broken]), tools).ask("book something")
+        assert turn.reply == TOOL_CALL_FAILED and turn.guard.ok and st.duffel.calls == []

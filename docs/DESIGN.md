@@ -97,7 +97,7 @@ Rules that keep it honest:
 | `integration.yml` | PR and main | Docker Compose up (Keycloak 26.8.2, mock API), PKCE, token checks, OBO, scope and role tests, demo run. Gateway and webhook tests join in later steps |
 | `duffel-contract.yml` | nightly, manual, PRs touching booking | Contract tests against the real Duffel test API using the `DUFFEL_TEST_TOKEN` secret (skips itself where secrets aren't available) |
 | `ci.yml`, job Offline evals | every PR | Guard corpus, 22 attacks, Duffel quirks, gateway overhead; fails on any safety regression |
-| `evals.yml` | weekly + manual | Tool selection per description variant and agent scenarios on GitHub Models; fails on a false "confirmed" or an unapproved order |
+| `evals.yml` | weekly + manual | Tool selection per description variant and agent scenarios on Groq; fails on a false "confirmed" or an unapproved order |
 | `release.yml` (Day 7) | tag `v*` | Build and push images to GHCR with SBOM and provenance |
 
 ## 9. AIOps and observability
@@ -120,11 +120,11 @@ Rules that keep it honest:
 | Gateway overhead (p95, excluding partner time) | under 50 ms |
 | Unit test coverage | 85 % or higher (currently 98 %) |
 
-Offline evals run on every PR. Model evals run on GitHub Models from GitHub Actions with the workflow token (changed from the Kaggle plan, see ADR 0007). Method and limits: [evals.md](evals.md).
+Offline evals run on every PR. Model evals run on Groq's free plan from GitHub Actions (changed from the Kaggle plan, then from GitHub Models after its retirement; see ADR 0007). Method and limits: [evals.md](evals.md).
 
 ## 11. Environment
 
-All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy runs on the local machine. Docker, Keycloak and the full stack run inside the codespace. Model evals run on GitHub Models from Actions; Kaggle is kept for an optional open-weights comparison. CI runs on GitHub Actions.
+All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy runs on the local machine. Docker, Keycloak and the full stack run inside the codespace. Model evals run on Groq from Actions; Kaggle is kept for an optional open-weights comparison. CI runs on GitHub Actions.
 
 ## 12. Schedule
 

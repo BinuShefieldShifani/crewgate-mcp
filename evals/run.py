@@ -1,7 +1,7 @@
 """Run the evals and write the numbers.
 
     uv run python -m evals.run offline                       # no model, every PR
-    uv run python -m evals.run selection --budget 110        # needs GITHUB_TOKEN with models:read
+    uv run python -m evals.run selection --budget 110        # needs AGENT_LLM_API_KEY (Groq)
     uv run python -m evals.run scenarios --variant contract
     uv run python -m evals.run all
 
@@ -45,7 +45,7 @@ async def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.ERROR)  # the attack evals trigger expected warnings
     p = argparse.ArgumentParser(prog="evals.run")
     p.add_argument("suite", choices=["offline", "selection", "scenarios", "all", "probe"])
-    p.add_argument("--model", help="e.g. openai/gpt-4o-mini (default: AGENT_LLM_MODEL)")
+    p.add_argument("--model", help="e.g. openai/gpt-oss-120b (default: AGENT_LLM_MODEL)")
     p.add_argument("--variants", default=",".join(VARIANTS), help="for selection, comma separated")
     p.add_argument("--variant", default="guided", help="descriptions the scenarios run with")
     p.add_argument("--budget", type=int, default=140, help="max model calls in this run")
