@@ -96,7 +96,8 @@ Rules that keep it honest:
 | `ci.yml` | every push and PR | ruff + format check, strict mypy, pytest with 85 % coverage gate, bandit, pip-audit, gitleaks, Docker build + smoke test + Trivy scan |
 | `integration.yml` | PR and main | Docker Compose up (Keycloak 26.8.2, mock API), PKCE, token checks, OBO, scope and role tests, demo run. Gateway and webhook tests join in later steps |
 | `duffel-contract.yml` | nightly, manual, PRs touching booking | Contract tests against the real Duffel test API using the `DUFFEL_TEST_TOKEN` secret (skips itself where secrets aren't available) |
-| `evals.yml` (Day 6) | manual + on eval-result commits | Small-model smoke eval on CPU; checks committed Kaggle GPU eval results against thresholds and posts a summary |
+| `ci.yml`, job Offline evals | every PR | Guard corpus, 22 attacks, Duffel quirks, gateway overhead; fails on any safety regression |
+| `evals.yml` | weekly + manual | Tool selection per description variant and agent scenarios on GitHub Models; fails on a false "confirmed" or an unapproved order |
 | `release.yml` (Day 7) | tag `v*` | Build and push images to GHCR with SBOM and provenance |
 
 ## 9. AIOps and observability
@@ -104,7 +105,7 @@ Rules that keep it honest:
 - Metrics: tool calls by tool, client and outcome; latency histograms per tool and per partner; partner retries and 429s; auth failures; guard blocks; token refreshes.
 - Traces: one span per MCP request, child spans for auth, entitlement checks and each partner call.
 - Logs: JSON, redacted, correlated by request ID; audit log separate and append-only.
-- Versioned tool descriptions (`v1`, `v2`, ...) recorded on each audit entry, so eval results map to the exact text the model saw.
+- Tool descriptions come in named variants (`minimal`, `guided`, `contract`), chosen per gateway; every eval result records the variant and model, so a number maps to the exact text the model saw.
 - Alerts: partner error rate, p95 latency, auth failure spikes, any guard violation.
 
 ## 10. Evaluation and target numbers
@@ -119,11 +120,11 @@ Rules that keep it honest:
 | Gateway overhead (p95, excluding partner time) | under 50 ms |
 | Unit test coverage | 85 % or higher (currently 98 %) |
 
-Evals run on Kaggle GPU (Ollama, 7B model) by calling the scripts in `evals/`; results are committed as JSON and checked in CI.
+Offline evals run on every PR. Model evals run on GitHub Models from GitHub Actions with the workflow token (changed from the Kaggle plan, see ADR 0007). Method and limits: [evals.md](evals.md).
 
 ## 11. Environment
 
-All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy runs on the local machine. Docker, Keycloak and the full stack run inside the codespace. GPU work runs on Kaggle by calling the repo's Python scripts. CI runs on GitHub Actions.
+All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy runs on the local machine. Docker, Keycloak and the full stack run inside the codespace. Model evals run on GitHub Models from Actions; Kaggle is kept for an optional open-weights comparison. CI runs on GitHub Actions.
 
 ## 12. Schedule
 
@@ -135,4 +136,4 @@ All development runs in GitHub Codespaces (`.devcontainer/`), so nothing heavy r
 | Tue 24 | 4 | MCP server with crew tools, out-of-band human approval on writes, raw JSON-RPC tests (agent moved to Step 6, next to the evals that need an LLM) |
 | Wed 25 | 5 | Booking plugin on Duffel: search, offers, seat maps, bags, quirk handling, webhook verification |
 | Thu 26 | 6 | Confirmation guard, LangGraph agent, tool-description variants, eval harness |
-| Fri 27 | 7 | Kaggle eval run, Grafana dashboard, load test numbers, release, README and pitch |
+| Fri 27 | 7 | Grafana dashboard, load test numbers, release, README and pitch |

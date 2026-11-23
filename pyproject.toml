@@ -1,6 +1,6 @@
 [project]
 name = "crewgate-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared secure MCP core with domain plugins (airline crew roster, flight booking)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -15,6 +15,12 @@ dependencies = [
     "python-multipart>=0.0.9",
     "prometheus-client>=0.21",
     "mcp>=2.3,<3",
+]
+
+[project.optional-dependencies]
+agent = [
+    "httpx2>=2.16",
+    "langgraph>=1.2,<2",
 ]
 
 [dependency-groups]
@@ -78,7 +84,7 @@ known-first-party = ["crewgate", "mock_roster_api"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "services"]
+files = ["src", "services", "evals"]
 mypy_path = "src:services"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
@@ -86,6 +92,7 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+follow_imports = "silent"  # evals import the test fakes; type-check evals, not the fakes
 
 [tool.bandit]
 exclude_dirs = ["tests"]

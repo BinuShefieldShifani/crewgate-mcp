@@ -10,7 +10,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crewgate.core.approvals import ApprovalError, ApprovalFailure, ApprovalStatusView, ApprovalStore
 from crewgate.core.auth import Principal
+from crewgate.core.descriptions import DEFAULT_VARIANT, check_table, describe
 from crewgate.core.plugin import PluginContext, ToolSpec
+
+DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "minimal": {"gateway.approval_status": "Get approval status."},
+    "guided": {
+        "gateway.approval_status": (
+            "Check whether a write you proposed has been approved, rejected or done. Use it before "
+            "telling the user anything about the outcome of a proposed change."
+        )
+    },
+    "contract": {
+        "gateway.approval_status": (
+            "Where a proposed write stands: pending, approved, rejected, expired or executed.\n"
+            "Use when: you proposed a booking or a swap and the user asks whether it went through, "
+            "or before saying anything about its outcome.\n"
+            "Needs: approval_id returned by booking_book_flight or crew_propose_swap.\n"
+            "Returns: status, and when executed the result (for a flight, its booking_id and state).\n"
+            "Next: for a flight, booking_get_booking with that booking_id before saying confirmed."
+        )
+    },
+}
 
 
 class ApprovalStatusInput(BaseModel):
@@ -23,8 +44,8 @@ class ApprovalStatusInput(BaseModel):
 class GatewayPlugin:
     name = "gateway"
 
-    def __init__(self, approvals: ApprovalStore | None) -> None:
-        self.approvals = approvals
+    def __init__(self, approvals: ApprovalStore | None, variant: str = DEFAULT_VARIANT) -> None:
+        self.approvals, self.variant = approvals, variant
 
     async def approval_status(self, p: Principal, approval_id: str) -> ApprovalStatusView:
         if self.approvals is None:
@@ -48,11 +69,11 @@ class GatewayPlugin:
         )
 
     def tools(self) -> list[ToolSpec]:
+        check_table(DESCRIPTIONS, ["gateway.approval_status"])
         return [
             ToolSpec(
                 "gateway.approval_status",
-                "Check whether a write you proposed has been approved, rejected or done. Use it before "
-                "telling the user anything about the outcome of a proposed change.",
+                describe(DESCRIPTIONS, "gateway.approval_status", self.variant),
                 "openid",
                 self.approval_status,
                 title="Approval status",
@@ -64,4 +85,5 @@ class GatewayPlugin:
 
 
 def build(ctx: PluginContext | None = None) -> GatewayPlugin:
-    return GatewayPlugin((ctx or PluginContext()).approvals)
+    ctx = ctx or PluginContext()
+    return GatewayPlugin(ctx.approvals, ctx.description_variant)

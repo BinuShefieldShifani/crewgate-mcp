@@ -25,7 +25,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
@@ -38,7 +38,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - run: uv run pytest --cov --cov-report=xml --cov-report=term --junitxml=junit.xml
       - name: Coverage summary
         if: always()
@@ -63,17 +63,36 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - name: Bandit (medium and above)
         run: uv run bandit -ll -c pyproject.toml -r src services
       - name: Dependency audit
         run: |
-          uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt > requirements.txt
+          uv export --frozen --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt > requirements.txt
           uv run pip-audit -r requirements.txt --progress-spinner off
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  evals:
+    name: Offline evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --all-extras
+      # Guard corpus, 22 attacks, 11 Duffel quirks, gateway overhead. No model, so it runs on every
+      # PR and fails the build if any safety number moves. Writes the tables to the job summary.
+      - run: uv run python -m evals.run offline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-evals
+          path: evals/out/
 
   docker:
     name: Build and scan images

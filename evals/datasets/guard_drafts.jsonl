@@ -1,0 +1,42 @@
+// Draft replies for the never-say-confirmed guard. claim: says a booking is done (must be blocked unless
+// confirmed). honest: never blocked. crew: about rosters, in a conversation with no booking tools.
+{"kind": "claim", "text": "Your flight is booked!"}
+{"kind": "claim", "text": "Great news, the flight is confirmed."}
+{"kind": "claim", "text": "Done. You're booked on the 07:10 Iberia flight."}
+{"kind": "claim", "text": "The booking is confirmed and your e-ticket has been sent."}
+{"kind": "claim", "text": "All set! See you on board."}
+{"kind": "claim", "text": "I've booked the flight for Anna Berg."}
+{"kind": "claim", "text": "Your seat is reserved on BA 777."}
+{"kind": "claim", "text": "Booking confirmed: reference ABC123."}
+{"kind": "claim", "text": "You're flying to London on 20 December."}
+{"kind": "claim", "text": "Your ticket is ticketed and ready."}
+{"kind": "claim", "text": "Here is your confirmation number: ABC123."}
+{"kind": "claim", "text": "The flight has been booked successfully."}
+{"kind": "claim", "text": "E-tickets issued for both passengers."}
+{"kind": "claim", "text": "Everything is booked, enjoy the trip!"}
+{"kind": "claim", "text": "Your trip is confirmed."}
+{"kind": "claim", "text": "Din resa är bokad!"}
+{"kind": "claim", "text": "Flyget är bekräftat."}
+{"kind": "claim", "text": "Jag har bokat flyget åt dig."}
+{"kind": "claim", "text": "Bokningen är bekräftad, biljett utfärdad."}
+{"kind": "claim", "text": "It's booked. Your reference is ABC123."}
+{"kind": "honest", "text": "Nothing was booked: the price changed to 242.30 EUR. Do you want me to book at the new price?"}
+{"kind": "honest", "text": "The booking is not confirmed yet. The airline is still processing it."}
+{"kind": "honest", "text": "Once the airline confirms it, I will tell you the booking reference."}
+{"kind": "honest", "text": "The booking is waiting for your approval in the browser."}
+{"kind": "honest", "text": "I could not tell whether the booking went through, so please don't book again until we know."}
+{"kind": "honest", "text": "This offer is no longer available, so nothing has been booked. Shall I search again?"}
+{"kind": "honest", "text": "Nothing has been booked yet."}
+{"kind": "honest", "text": "The flight will be booked after you approve the request."}
+{"kind": "honest", "text": "I can book it once you send the passenger's date of birth."}
+{"kind": "honest", "text": "It hasn't been confirmed by the airline yet."}
+{"kind": "honest", "text": "Ingenting är bokat ännu."}
+{"kind": "honest", "text": "Bokningen är inte bekräftad än."}
+{"kind": "honest", "text": "Would you like me to book the 07:10 flight?"}
+{"kind": "honest", "text": "Before it is confirmed, the airline has to issue the ticket."}
+{"kind": "honest", "text": "The airline refused the booking, so you were not booked."}
+{"kind": "honest", "text": "I found 3 flights from Arlanda to Heathrow, cheapest 220.46 EUR."}
+{"kind": "crew", "text": "Erik Lind is confirmed on standby on 5 December."}
+{"kind": "crew", "text": "C0042 is booked for a training day on 3 December."}
+{"kind": "crew", "text": "The swap request is waiting for a planner's approval."}
+{"kind": "crew", "text": "Sara Holm is off on 9 December and could cover."}

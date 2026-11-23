@@ -1,7 +1,7 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration eval-offline eval-selection eval-scenarios agent
 
 install:      ## install all deps from the lockfile
-	uv sync --frozen
+	uv sync --frozen --all-extras
 
 lint:
 	uv run ruff check .
@@ -22,7 +22,7 @@ cov:
 
 security:
 	uv run bandit -ll -c pyproject.toml -r src services
-	uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt > /tmp/req.txt
+	uv export --frozen --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt > /tmp/req.txt
 	uv run pip-audit -r /tmp/req.txt --progress-spinner off
 
 check: lint type cov security   ## everything CI runs, except the image scan
@@ -62,3 +62,15 @@ demo-m2m:     ## Step 1: client credentials against a mock API in local mode (no
 
 integration:  ## tests against the running stack (needs make up)
 	uv run pytest -m integration tests/integration -v
+
+eval-offline: ## Step 6: guard corpus, attacks, Duffel quirks, gateway overhead. No model, ~30 s
+	uv run python -m evals.run offline
+
+eval-selection: ## Step 6: tool-selection accuracy per description variant (GITHUB_TOKEN with models:read)
+	uv run python -m evals.run selection --budget 110
+
+eval-scenarios: ## Step 6: agent end-to-end on Duffel's quirk routes (GITHUB_TOKEN with models:read)
+	uv run python -m evals.run scenarios --budget 70
+
+agent:        ## Step 6: chat with the agent against the running stack (make up, GITHUB_TOKEN set)
+	uv run python scripts/agent_chat.py
