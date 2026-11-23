@@ -23,7 +23,7 @@ Both plugins share one core, so security and observability are written once and 
 | Flight offers, seat maps, bags, orders | Duffel test mode | Prices are not real. Duffel documents specific test routes that trigger quirks, such as an offer whose price changes after search |
 | Duffel webhooks | Duffel test mode | Signed with `X-Duffel-Signature: t=...,v1=...` (HMAC-SHA256 of `t.raw_body`). crewgate verifies the signature and rejects stale timestamps |
 | Tool-selection eval set | Hand-labelled JSONL in `evals/datasets/` | User requests labelled with the correct tool (or "no tool"), including distractors and prompt-injection attempts |
-| Quirk and guard scenarios | Recorded Duffel responses in `tests/fixtures/duffel/` | Replayed in unit tests so CI never depends on Duffel being up |
+| Quirk and guard scenarios | `tests/helpers/fake_duffel.py`, built from Duffel's documented response shapes and test routes | Unit tests never depend on Duffel being up; `tests/contract/` checks the same parsing against the real sandbox nightly |
 
 ## 4. Architecture
 
@@ -95,7 +95,7 @@ Rules that keep it honest:
 |---|---|---|
 | `ci.yml` | every push and PR | ruff + format check, strict mypy, pytest with 85 % coverage gate, bandit, pip-audit, gitleaks, Docker build + smoke test + Trivy scan |
 | `integration.yml` | PR and main | Docker Compose up (Keycloak 26.8.2, mock API), PKCE, token checks, OBO, scope and role tests, demo run. Gateway and webhook tests join in later steps |
-| `sandbox.yml` (Day 5) | nightly + manual | Contract tests against the real Duffel test API using the `DUFFEL_TEST_TOKEN` secret |
+| `duffel-contract.yml` | nightly, manual, PRs touching booking | Contract tests against the real Duffel test API using the `DUFFEL_TEST_TOKEN` secret (skips itself where secrets aren't available) |
 | `evals.yml` (Day 6) | manual + on eval-result commits | Small-model smoke eval on CPU; checks committed Kaggle GPU eval results against thresholds and posts a summary |
 | `release.yml` (Day 7) | tag `v*` | Build and push images to GHCR with SBOM and provenance |
 

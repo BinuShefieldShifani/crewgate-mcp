@@ -17,6 +17,7 @@ import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 
 import httpx
@@ -145,15 +146,29 @@ class PartnerClient:
         if self.metrics is not None:
             self.metrics.partner_retries.labels(self.name, cause).inc()
 
-    async def request(self, method: str, path: str, **kwargs: Any) -> Any:
+    async def request(self, method: str, path: str, *, idempotent: bool | None = None, **kwargs: Any) -> Any:
+        """Send with retries that can't cause duplicates.
+
+        `idempotent` defaults to the HTTP method's meaning (GET, PUT, DELETE...: yes; POST: no).
+        Pass idempotent=True for a POST that is safe to repeat, such as a search.
+        Non-idempotent calls are retried only when the request provably never reached the partner
+        (connection failed), after a 429, or after a 401 refresh. A timeout after sending becomes
+        OUTCOME_UNKNOWN, and a 5xx is not retried, because the partner may have acted on it.
+        """
+        safe = idempotent if idempotent is not None else method.upper() in _IDEMPOTENT_METHODS
+        extra_headers = kwargs.pop("headers", {})
         refreshed = False
         attempt = 0
         while True:
-            headers = {**kwargs.pop("headers", {}), **await self.auth.headers()}
+            headers = {**extra_headers, **await self.auth.headers()}
             try:
                 resp = await self.http.request(method, path, headers=headers, **kwargs)
             except httpx.TransportError as exc:
                 self._count(None)
+                never_sent = isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout | httpx.PoolTimeout)
+                if not safe and not never_sent:
+                    self._count_retry("not_retried_unsafe")
+                    raise PartnerError(ErrorCategory.OUTCOME_UNKNOWN, type(exc).__name__) from exc
                 if attempt >= self.policy.max_retries:
                     raise PartnerError(ErrorCategory.UPSTREAM_UNAVAILABLE, type(exc).__name__) from exc
                 self._count_retry("network")
@@ -178,13 +193,13 @@ class PartnerClient:
                 await self.sleep(wait)
                 attempt += 1
                 continue
-            if resp.status_code >= 500 and attempt < self.policy.max_retries:
+            if resp.status_code >= 500 and safe and attempt < self.policy.max_retries:
                 self._count_retry("5xx")
                 await self._backoff(attempt, resp.status_code)
                 attempt += 1
                 continue
             if resp.status_code >= 400:
-                raise PartnerError.from_status(resp.status_code, _detail(resp))
+                raise PartnerError.from_status(resp.status_code, _detail(resp), _code(resp))
             return resp.json() if resp.content else None
 
     async def paginate(
@@ -214,14 +229,53 @@ class PartnerClient:
         await self.sleep(wait)
 
 
-def _retry_after(resp: httpx.Response) -> float:
+_IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+
+
+def _seconds_until(value: str, now: float) -> float | None:
+    """Accept delta-seconds, a unix timestamp or an HTTP date. None if unreadable."""
+    value = value.strip()
     try:
-        return max(0.0, float(resp.headers.get("Retry-After", "1")))
+        n = float(value)
     except ValueError:
-        return 1.0
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, when.timestamp() - now)
+    return max(0.0, n - now) if n > 1e9 else max(0.0, n)
+
+
+def _retry_after(resp: httpx.Response, now: float | None = None) -> float:
+    """Retry-After first; Duffel sends ratelimit-reset instead. Unreadable means 1 second."""
+    now = time.time() if now is None else now
+    for header in ("Retry-After", "ratelimit-reset"):
+        if header in resp.headers:
+            seconds = _seconds_until(resp.headers[header], now)
+            if seconds is not None:
+                return seconds
+    return 1.0
+
+
+def _code(resp: httpx.Response) -> str | None:
+    """The partner's machine-readable error code, if it sends one (Duffel: errors[0].code)."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    if isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict) and errors[0].get("code"):
+            return str(errors[0]["code"])
+        if isinstance(body.get("detail"), str):
+            return str(body["detail"])
+    return None
 
 
 def _detail(resp: httpx.Response) -> str:
+    code = _code(resp)
+    if code:
+        return code[:200]
     try:
         body = resp.json()
     except ValueError:

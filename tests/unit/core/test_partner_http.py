@@ -162,3 +162,70 @@ async def test_partner_metrics_count_every_attempt_and_retry_cause():
 
     assert (requests("network_error"), requests("4xx"), requests("5xx"), requests("2xx")) == (1, 2, 1, 1)
     assert (retries("network"), retries("401_refresh"), retries("429"), retries("5xx")) == (1, 1, 1, 1)
+
+
+# ---- no duplicate side effects (Step 5) ----------------------------------------------------
+
+
+def _timeout():
+    return httpx.ReadTimeout("no answer")
+
+
+async def test_post_that_may_have_landed_is_never_retried():
+    """Duffel has no idempotency key for orders: a retried POST could book twice."""
+    pc, calls = client_for([_timeout(), httpx.Response(201, json={"id": 1})])
+    with pytest.raises(PartnerError) as e:
+        await pc.request("POST", "/orders", json={})
+    assert e.value.category is ErrorCategory.OUTCOME_UNKNOWN and len(calls) == 1
+
+
+async def test_post_that_never_left_is_retried():
+    pc, calls = client_for([httpx.ConnectError("refused"), httpx.Response(201, json={"id": 1})])
+    assert await pc.request("POST", "/orders", json={}) == {"id": 1}
+    assert len(calls) == 2
+
+
+async def test_post_5xx_is_not_retried_but_a_safe_post_is():
+    pc, calls = client_for([httpx.Response(502), httpx.Response(201, json={})])
+    with pytest.raises(PartnerError):
+        await pc.request("POST", "/orders", json={})
+    assert len(calls) == 1
+    pc, calls = client_for([httpx.Response(502), _timeout(), httpx.Response(201, json={"ok": 1})])
+    assert await pc.request("POST", "/search", json={}, idempotent=True) == {"ok": 1}
+    assert len(calls) == 3
+
+
+async def test_post_429_is_retried_because_it_was_never_processed():
+    pc, calls = client_for([httpx.Response(429, headers={"Retry-After": "1"}), httpx.Response(201, json={})])
+    await pc.request("POST", "/orders", json={})
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"Retry-After": "3"}, 3.0),
+        ({"ratelimit-reset": "1000004"}, 1000004.0),  # small numbers are delta seconds
+        ({"ratelimit-reset": "1800000004"}, 4.0),  # unix timestamp
+        ({"ratelimit-reset": "Fri, 15 Jan 2027 08:00:04 GMT"}, 4.0),  # HTTP date
+        ({"ratelimit-reset": "soon"}, 1.0),
+        ({}, 1.0),
+    ],
+)
+def test_retry_after_and_ratelimit_reset(headers, expected):
+    from datetime import UTC, datetime
+
+    from crewgate.core.partner_http import _retry_after
+
+    now = 1_800_000_000.0
+    if "GMT" in str(headers):
+        now = datetime(2027, 1, 15, 8, 0, 0, tzinfo=UTC).timestamp()
+    assert _retry_after(httpx.Response(429, headers=headers), now=now) == expected
+
+
+async def test_partner_error_codes_are_kept():
+    body = {"errors": [{"code": "price_changed", "type": "airline_error"}], "meta": {"status": 422}}
+    pc, _ = client_for([httpx.Response(422, json=body)])
+    with pytest.raises(PartnerError) as e:
+        await pc.request("POST", "/orders", json={})
+    assert e.value.code == "price_changed" and e.value.message == "price_changed"

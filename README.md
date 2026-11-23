@@ -17,8 +17,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 2 | Keycloak: JWT/JWKS verification, PRM (RFC 9728), PKCE sign-in, OBO token exchange (RFC 8693), integration CI | Done |
 | 3 | Tool guard: per-client entitlements, rate limits and quotas, HMAC-signed partner calls, Duffel-compatible webhook verification, redacted JSON logs, HMAC-chained audit log, Prometheus metrics | Done |
 | 4 | MCP server (streamable HTTP, stateless, MCP SDK 2.3 low-level API): PRM, structured tools, out-of-band human approval of writes, raw JSON-RPC tests | Done |
-| 5 | Booking plugin on Duffel: quirks, webhook signature verification | Next |
-| 6 | "Never say confirmed" guard, LangGraph agent, tool-description variants, evals | |
+| 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
+| 6 | LangGraph agent wired to the confirmation guard, tool-description variants, evals | Next |
 | 7 | Kaggle eval run, dashboards, release | |
 
 ## Run it
@@ -32,6 +32,8 @@ make integration  # tests against real Keycloak: PKCE, token checks, OBO, roles
 make demo         # Step 2: sign in, exchange, read, swap, and the refusals
 make demo-guard   # Step 3: entitlements, rate limits, redacted logs, audit chain, metrics
 make demo-mcp     # Step 4: the MCP server in raw JSON-RPC, and a write a human has to approve
+make demo-booking # Step 5: book on Duffel's real test API (start the stack with DUFFEL_ACCESS_TOKEN set)
+make contract     # contract tests against Duffel's real test API
 make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
@@ -67,6 +69,27 @@ can try it with the MCP Inspector: `npx @modelcontextprotocol/inspector`, then c
 | `crew_find_cover` | standby crew first, then crew who are off, for a day and base |
 | `crew_propose_swap` | **write**: creates an approval request, changes nothing yet |
 | `gateway_approval_status` | pending, executed, rejected or expired, plus the result once done |
+| `booking_search_flights` | cheapest offers first, with exact prices, stops, included bags and refund rules |
+| `booking_get_offer` | the price now (pass `quoted_total` to detect a change), passenger slots, extra bags |
+| `booking_get_seat_map` | whether seat selection exists at all, free seats, cheapest paid seat |
+| `booking_book_flight` | **write**: approval first; the gateway re-checks the price, then books exactly once |
+| `booking_get_booking` | the state derived from the order, `confirmed` true or false, and what to tell the user |
+
+### Booking: what can go wrong, and what the caller sees
+
+| Duffel quirk (sandbox route) | What crewgate does |
+|---|---|
+| Price changes after search (LHR-STN) | `get_offer` reports `price_check: changed`; after approval the price is checked again and nothing is booked if it moved |
+| Offer gone (LGW-LHR) | `offer_unavailable`, search again |
+| No baggage reported (BTS-MRU), no extra bags (BTS-ABV) | `checked_bags_included: 0` and a note saying so, never a silent gap |
+| No seat map | `seat_selection_available: false`: seats are assigned at check-in |
+| Slow airline (STN-LHR) | Duffel's `supplier_timeout` capped at 8 s; the caller gets `partner_upstream_unavailable` |
+| Order accepted but not created (HTTP 202) | `pending_confirmation` until the signed `order.created` webhook settles it |
+| Booking request timed out after sending | `outcome_unknown`. Never retried: Duffel has no idempotency key for orders, so a retry could book twice |
+
+A booking is `confirmed` only when the order has a booking reference, is paid, and has an electronic
+ticket. `check_reply()` blocks any draft reply that says "booked", "confirmed", "all set" (or
+"bokad", "bekräftad") about a booking that isn't. See [ADR 0006](docs/adr/0006-booking-state-and-never-say-confirmed.md).
 
 ## Writes need a person, not just a token
 

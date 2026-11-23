@@ -14,6 +14,11 @@ TOOLS = {
     "crew_get_roster",
     "crew_find_cover",
     "crew_propose_swap",
+    "booking_search_flights",
+    "booking_get_offer",
+    "booking_get_seat_map",
+    "booking_book_flight",
+    "booking_get_booking",
 }
 
 

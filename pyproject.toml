@@ -47,7 +47,7 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
     "integration: needs docker compose services (Keycloak, mock APIs)",
-    "sandbox: calls the real Duffel test-mode API, needs DUFFEL_TEST_TOKEN",
+    "sandbox: calls the real Duffel test-mode API, needs DUFFEL_ACCESS_TOKEN (a duffel_test_ token)",
 ]
 addopts = "-m 'not integration and not sandbox'"
 

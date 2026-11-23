@@ -20,7 +20,10 @@ jobs:
   keycloak:
     name: Integration (Keycloak + mock API)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      # Empty for forks and Dependabot: the booking demo then skips, everything else still runs.
+      DUFFEL_ACCESS_TOKEN: ${{ secrets.DUFFEL_TEST_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -40,6 +43,9 @@ jobs:
         run: uv run python scripts/verify_audit.py var/audit.jsonl
       - name: Demo, Step 4 (same as make demo-mcp)
         run: uv run python scripts/demo_mcp.py
+      - name: Demo, Step 5 (same as make demo-booking, real Duffel sandbox)
+        if: env.DUFFEL_ACCESS_TOKEN != ''
+        run: uv run python scripts/demo_booking.py
       - name: Gateway audit chain (the gateway's own file, inside its container)
         run: |
           docker compose -f deploy/docker-compose.yml cp gateway:/app/var/audit.jsonl var/gateway-audit.jsonl

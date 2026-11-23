@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .approvals import ApprovalStore
+    from .audit import AuditLog
     from .auth import TokenExchanger
     from .metrics import GatewayMetrics
 
@@ -42,6 +43,7 @@ class PluginContext:
     exchanger: "TokenExchanger | None" = None
     metrics: "GatewayMetrics | None" = None
     approvals: "ApprovalStore | None" = None
+    audit: "AuditLog | None" = None  # for events that don't come from a tool call, e.g. webhooks
     partner_transport: Any = None  # tests only: route partner calls to an in-process app
 
 
@@ -49,6 +51,12 @@ class Plugin(Protocol):
     name: str
 
     def tools(self) -> list[ToolSpec]: ...
+
+
+def plugin_routes(plugin: Plugin) -> list[Any]:
+    """Extra HTTP routes a plugin serves, such as a partner's webhook. Optional."""
+    routes = getattr(plugin, "routes", None)
+    return list(routes()) if callable(routes) else []
 
 
 class PluginLoadError(Exception):

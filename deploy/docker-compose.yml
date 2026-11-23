@@ -81,6 +81,10 @@ services:
       CREWGATE_PSEUDONYM_KEY: ${CREWGATE_PSEUDONYM_KEY:-dev-only-pseudonym-key}
       CREW_API_BASE_URL: http://mock-roster:8001
       CREW_HMAC_SECRET: ${CREW_HMAC_SECRET:-dev-only-hmac-secret}
+      # Booking tools need a Duffel TEST token (duffel_test_...). Without one they answer
+      # "booking_not_configured" and everything else still works.
+      DUFFEL_ACCESS_TOKEN: ${DUFFEL_ACCESS_TOKEN:-}
+      DUFFEL_WEBHOOK_SECRETS: '${DUFFEL_WEBHOOK_SECRETS:-["dev-only-duffel-webhook-secret"]}'
     volumes:
       - gateway-audit:/app/var
     healthcheck:

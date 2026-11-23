@@ -11,7 +11,7 @@ class GatewaySettings(BaseSettings):
     port: int = 8000
     public_url: str = "http://localhost:8000"  # what browsers use; approval links are built from it
     mcp_path: str = "/mcp"
-    plugins: list[str] = ["crew"]
+    plugins: list[str] = ["crew", "booking"]
     entitlements_path: str = "config/entitlements.toml"
     audit_path: str = "var/audit.jsonl"
     audit_key: SecretStr = SecretStr("dev-only-audit-key")

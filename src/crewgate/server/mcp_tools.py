@@ -135,6 +135,10 @@ class ToolRouter:
             extra = {"retry_after": int(exc.headers["Retry-After"])} if "Retry-After" in exc.headers else {}
             return _error(exc.reason, exc.message, **extra)
         except PartnerError as exc:
+            if exc.code and exc.code.endswith("_not_configured"):
+                return _error(
+                    exc.code, "this feature is not set up on this gateway (missing partner credentials)"
+                )
             detail = exc.message if _SAFE_CODE.match(exc.message) else None
             return _error(
                 f"partner_{exc.category.value}",
