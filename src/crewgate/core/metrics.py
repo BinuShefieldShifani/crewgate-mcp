@@ -53,6 +53,12 @@ class GatewayMetrics:
         self.approvals = Counter(
             "crewgate_approvals_total", "Write approvals by outcome", ["tool", "outcome"], registry=r
         )
+        self.webhooks = Counter(
+            "crewgate_webhooks_total",
+            "Partner webhooks by type and outcome",
+            ["source", "type", "outcome"],
+            registry=r,
+        )
         self.audit_records = Counter("crewgate_audit_records_total", "Audit records written", registry=r)
         self.in_flight = Gauge("crewgate_tool_calls_in_flight", "Tool calls running now", registry=r)
 

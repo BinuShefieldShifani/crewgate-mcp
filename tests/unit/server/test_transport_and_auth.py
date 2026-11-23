@@ -34,7 +34,13 @@ async def test_protected_resource_metadata(env: Env) -> None:
         doc = (await env.http.get(path)).json()
         assert doc["resource"] == f"{BASE}/mcp"
         assert doc["authorization_servers"] == ["https://idp.test/realms/crewgate"]
-        assert doc["scopes_supported"] == ["openid", "roster.read", "swap.write"]
+        assert doc["scopes_supported"] == [
+            "booking.read",
+            "booking.write",
+            "openid",
+            "roster.read",
+            "swap.write",
+        ]
         assert doc["bearer_methods_supported"] == ["header"]
 
 

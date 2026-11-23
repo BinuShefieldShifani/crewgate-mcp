@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp gateway audit-verify integration
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen
@@ -41,6 +41,12 @@ demo:         ## Step 2: PKCE sign-in, OBO exchange, role enforcement (needs mak
 
 demo-mcp:     ## Step 4: the MCP server over raw JSON-RPC, write approval by a human (needs make up)
 	uv run python scripts/demo_mcp.py
+
+demo-booking: ## Step 5: book on Duffel's real test API through the gateway (make up with DUFFEL_ACCESS_TOKEN set)
+	uv run python scripts/demo_booking.py
+
+contract:     ## contract tests against Duffel's real test API (needs DUFFEL_ACCESS_TOKEN=duffel_test_...)
+	uv run pytest -m sandbox tests/contract -v -s
 
 gateway:      ## run the gateway on your machine instead of in Docker (stack minus gateway must be up)
 	uv run python -m crewgate.server

@@ -22,6 +22,7 @@ from crewgate.core.auth import AuthSettings, JwksCache, TokenVerifier
 from crewgate.server import Gateway, GatewaySettings, create_app
 from mock_roster_api.app import create_app as create_partner
 from mock_roster_api.settings import ApiSettings
+from tests.helpers.fake_duffel import FakeDuffel, RoutingTransport
 from tests.helpers.idp import GATEWAY, ISSUER, JWKS_URL, PARTNER, TOKEN_URL, FakeIdp
 
 REPO = Path(__file__).resolve().parents[3]
@@ -49,6 +50,7 @@ class Env:
     http: httpx.AsyncClient
     audit: MemorySink
     clock: Clock
+    duffel: FakeDuffel
 
     def agent_token(self, user: str = "anna", **kw: Any) -> str:
         """What the MCP client (the agent) holds after the planner signed in."""
@@ -83,8 +85,14 @@ class Env:
         return body
 
 
+DUFFEL_WEBHOOK_SECRET = "dev-only-duffel-webhook-secret"
+
+
 @pytest.fixture
-async def env() -> AsyncIterator[Env]:
+async def env(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Env]:
+    monkeypatch.setenv("DUFFEL_ACCESS_TOKEN", "duffel_test_" + "x" * 20)  # placeholder, never a real token
+    monkeypatch.setenv("DUFFEL_WEBHOOK_SECRETS", f'["{DUFFEL_WEBHOOK_SECRET}"]')
+    duffel = FakeDuffel()
     idp = FakeIdp(users=USERS)
     clock = Clock()
     partner = create_partner(
@@ -108,7 +116,9 @@ async def env() -> AsyncIterator[Env]:
         settings,
         auth,
         idp_http=idp.client(),
-        partner_transport=httpx.ASGITransport(app=partner),
+        partner_transport=RoutingTransport(
+            {"localhost": httpx.ASGITransport(app=partner), "api.duffel.com": duffel.transport()}
+        ),
         audit_sink=sink,
         clock=clock,
     )
@@ -126,7 +136,7 @@ async def env() -> AsyncIterator[Env]:
     await started.wait()
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as http:
-            yield Env(idp, app, gw, http, sink, clock)
+            yield Env(idp, app, gw, http, sink, clock, duffel)
     finally:
         stop.set()
         await task

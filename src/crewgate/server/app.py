@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 from mcp.server.lowlevel import Server
@@ -41,7 +42,7 @@ from crewgate.core.auth import (
 from crewgate.core.entitlements import EntitlementPolicy
 from crewgate.core.guard import ToolGuard
 from crewgate.core.metrics import GatewayMetrics
-from crewgate.core.plugin import PluginContext, ToolSpec, load_plugins
+from crewgate.core.plugin import PluginContext, ToolSpec, load_plugins, plugin_routes
 from crewgate.core.ratelimit import RateLimiter
 
 from .approvals_web import ApprovalsWeb
@@ -50,9 +51,10 @@ from .mcp_tools import ToolRouter
 from .settings import GatewaySettings
 
 INSTRUCTIONS = (
-    "crewgate gives you airline crew-roster tools. Read tools answer straight away. Write tools "
-    "(names containing 'propose') only create a request a human must approve in their browser: "
-    "say it is awaiting approval and use gateway_approval_status to check before claiming it is done."
+    "crewgate gives you airline crew-roster and flight-booking tools. Read tools answer straight away. "
+    "Write tools (crew_propose_swap, booking_book_flight) only create a request a person must approve in "
+    "their browser: say it is awaiting approval, check gateway_approval_status, and for flights only say "
+    "'confirmed' when booking_get_booking returns confirmed=true."
 )
 
 
@@ -66,6 +68,7 @@ class Gateway:
     metrics: GatewayMetrics
     specs: dict[str, ToolSpec]
     router: ToolRouter
+    plugins: list[Any]
     http: httpx.AsyncClient
 
 
@@ -88,10 +91,11 @@ def create_app(
     )
     exchanger = TokenExchanger(http, a.token_url, a.client_id, a.client_secret, metrics=metrics)
     approvals = ApprovalStore(ttl_seconds=s.approval_ttl_seconds, **({"clock": clock} if clock else {}))
+    audit = AuditLog(s.audit_key, audit_sink or FileSink(Path(s.audit_path)))  # type: ignore[arg-type]
     guard = ToolGuard(
         EntitlementPolicy.from_toml(s.entitlements_path),
         RateLimiter(**({"clock": clock} if clock else {})),
-        AuditLog(s.audit_key, audit_sink or FileSink(Path(s.audit_path))),  # type: ignore[arg-type]
+        audit,
         metrics,
         approvals,
         approval_clients=[s.approvals_client_id],
@@ -122,7 +126,7 @@ def create_app(
             allowed_origins=s.allowed_origins,
         ),
     )
-    gateway = Gateway(s, a, verifier, exchanger, guard, metrics, specs, router, http)
+    gateway = Gateway(s, a, verifier, exchanger, guard, metrics, specs, router, plugins, http)
     web = ApprovalsWeb(guard, specs, verifier, http, s, a, **({"clock": clock} if clock else {}))
 
     prm = protected_resource_metadata(
@@ -156,6 +160,7 @@ def create_app(
         Route("/healthz", health, methods=["GET"]),
         Route("/metrics", prometheus, methods=["GET"]),
         *web.routes(),
+        *[route for plugin in plugins for route in plugin_routes(plugin)],
     ]
     app = Starlette(
         routes=routes,
