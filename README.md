@@ -1,7 +1,7 @@
 # crewgate-mcp
 
-[![ci](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml)
-[![integration](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml/badge.svg)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml)
+[![ci](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml)
+[![integration](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml/badge.svg?branch=main)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml)
 [![release](https://img.shields.io/github/v/release/BinuShefieldShifani/crewgate-mcp?sort=semver)](https://github.com/BinuShefieldShifani/crewgate-mcp/releases/latest)
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/BinuShefieldShifani/crewgate-mcp?quickstart=1)
