@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration eval-offline eval-selection eval-scenarios agent web demo-web demo-public
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration eval-offline eval-selection eval-scenarios agent web demo-web demo-public load
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen --all-extras
@@ -83,3 +83,6 @@ demo-web:     ## Step 7: sign in to the console like a browser and ask the agent
 
 demo-public:  ## Step 7: in a Codespace, the whole stack behind one public URL
 	bash scripts/codespace_demo.sh
+
+load:         ## Step 7b: load test in one process (calls/s and latency at 1, 8, 32 concurrent)
+	uv run python -m evals.run load

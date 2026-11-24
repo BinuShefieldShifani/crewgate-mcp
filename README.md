@@ -20,7 +20,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
 | 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on Groq | Done |
 | 7a | Web console (BFF sign-in, chat, every step behind each reply), Prometheus and Grafana, the whole stack behind one public URL (Caddy), Codespaces demo | Done |
-| 7b | Always-on deployment (Oracle VM, domain, TLS), CD with signed images and SBOM, load test, release, pitch | Next |
+| 7b | Always-on server (Oracle VM, domain, TLS, production Keycloak), releases: multi-arch images with SBOM and provenance, Sigstore-signed, deployed over SSH with rollback; load test | Done |
+| 7c | Live link, v1.0.0, pitch document | Next |
 
 ## Run it
 
@@ -39,6 +40,7 @@ make eval-offline # Step 6: guard, attacks, Duffel quirks, gateway overhead (no 
 make agent        # Step 6: chat with the agent on the running stack (needs AGENT_LLM_API_KEY)
 make demo-web     # Step 7: sign in to the web console like a browser and ask the agent
 make demo-public  # Step 7: in a Codespace, everything behind one public URL
+make load         # Step 7: load test (calls/s and latency at 1, 8, 32 concurrent)
 make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
@@ -121,7 +123,8 @@ Prometheus metrics. Logs are JSON with tokens removed and personal data replaced
 
 `make up` starts everything locally: the console at http://localhost:8090, Grafana at
 http://localhost:3000. Sign in as `anna` / `dev-only-anna`. In a Codespace, `make demo-public`
-puts the whole stack behind one public link ([docs/deploy.md](docs/deploy.md)).
+puts the whole stack behind one public link, and a tagged release deploys it to an always-on
+server ([docs/deploy.md](docs/deploy.md), [ADR 0009](docs/adr/0009-releases-and-the-server.md)).
 
 The console shows, next to each reply, every step behind it: the model's calls, each tool call
 through the gateway and whether it was refused, writes the agent stopped, and the guard's

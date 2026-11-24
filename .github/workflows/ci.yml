@@ -88,6 +88,8 @@ jobs:
       # Guard corpus, 22 attacks, 11 Duffel quirks, gateway overhead. No model, so it runs on every
       # PR and fails the build if any safety number moves. Writes the tables to the job summary.
       - run: uv run python -m evals.run offline
+      - name: Load test (one process; throughput floor and latency at 1, 8, 32 concurrent)
+        run: uv run python -m evals.run load
       - uses: actions/upload-artifact@v4
         if: always()
         with:

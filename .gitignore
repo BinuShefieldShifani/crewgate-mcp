@@ -13,3 +13,4 @@ evals/results/raw/
 evals/out/
 .DS_Store
 var/
+.deploy-state

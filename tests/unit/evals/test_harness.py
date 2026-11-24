@@ -304,3 +304,11 @@ async def test_an_injected_booking_is_stopped_before_the_gateway() -> None:
     s = r["scenarios"][0]
     assert s["passed"] and s["writes_blocked"] == 1 and r["writes_without_approval"] == 0
     assert "stopped by the agent: 1" in render_scenarios(r)
+
+
+async def test_load_suite_runs_clean() -> None:
+    from evals.load import render_load, run_load
+
+    r = await run_load(calls=16, levels=(1, 4))
+    assert r["passed"] and len(r["rows"]) == 4 and all(x["calls_per_second"] > 0 for x in r["rows"])
+    assert "Calls/s" in render_load(r)

@@ -110,3 +110,44 @@ jobs:
       - name: Stop stack
         if: always()
         run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml down -v
+
+  server:
+    # The always-on server's layout: TLS on 443, Keycloak in production mode, secrets from
+    # deploy/.env made by the same script the server uses. Caddy issues a local certificate for
+    # "localhost", so the client below skips certificate checks; a real domain gets Let's Encrypt.
+    name: Server layout (TLS, production Keycloak)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CREWGATE_IMAGE_TAG: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - name: "deploy/.env from the server script (no keys, so chat and booking stay off)"
+        run: printf '\n\n' | bash scripts/server/make_env.sh localhost
+      - name: Start the server stack
+        run: |
+          docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml \
+            -f deploy/docker-compose.server.yml up -d --build --wait --wait-timeout 360
+      - name: HTTPS, redirects, and the console through it
+        run: |
+          curl -fsSk https://localhost/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/)" = "308"
+          uv run python scripts/demo_web.py --base https://localhost --edge --insecure
+      - name: No dev-only secret is in use
+        run: |
+          if docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml \
+               -f deploy/docker-compose.server.yml config | grep -q 'dev-only-'; then
+            echo "a dev-only secret is still configured" >&2; exit 1
+          fi
+          echo "all secrets come from deploy/.env"
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml -f deploy/docker-compose.server.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml -f deploy/docker-compose.server.yml down -v

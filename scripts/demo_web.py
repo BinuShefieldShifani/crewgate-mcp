@@ -22,11 +22,12 @@ async def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--base", default="http://localhost:8090")
     p.add_argument("--edge", action="store_true", help="also check what the edge must not expose")
+    p.add_argument("--insecure", action="store_true", help="accept a self-signed certificate (CI only)")
     a = p.parse_args()
     base = a.base.rstrip("/")
     async with (
-        httpx.AsyncClient(base_url=base, trust_env=False, timeout=60) as web,
-        httpx.AsyncClient(trust_env=False, timeout=60) as idp,
+        httpx.AsyncClient(base_url=base, trust_env=False, timeout=60, verify=not a.insecure) as web,
+        httpx.AsyncClient(trust_env=False, timeout=60, verify=not a.insecure) as idp,
     ):
         r = await web.get("/login")
         page = await idp.get(r.headers["location"])

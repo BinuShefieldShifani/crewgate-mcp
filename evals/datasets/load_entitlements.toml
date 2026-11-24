@@ -1,0 +1,8 @@
+# Entitlements for the load test only: the same client, with limits high enough that the test
+# measures the gateway's code path, not its rate limiter (which the offline evals already test).
+[clients.crewgate-mcp-client]
+tools = ["gateway.*", "crew.*", "booking.*"]
+markets = ["SE", "NO", "DK", "FI"]
+per_user_per_minute = 1000000
+per_client_per_minute = 1000000
+daily_quota = 100000000

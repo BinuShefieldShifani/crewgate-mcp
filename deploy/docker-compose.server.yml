@@ -1,0 +1,76 @@
+# The always-on server: a real domain with TLS from Caddy, images from GHCR, restart after a
+# reboot, Keycloak in production mode, and real secrets from deploy/.env (created on the server
+# by scripts/server/make_env.sh, never committed).
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml \
+#     -f deploy/docker-compose.server.yml up -d --no-build --wait
+#
+# scripts/server/deploy.sh runs exactly that for a release tag. See docs/deploy.md.
+name: crewgate
+
+x-always: &always
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  edge:
+    <<: *always
+    ports: !override
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      CREWGATE_SITE: ${CREWGATE_DOMAIN:?set CREWGATE_DOMAIN in deploy/.env}
+
+  keycloak:
+    <<: *always
+    # Production mode. The embedded H2 file database is enough for one small realm whose users
+    # and clients come from the realm file; it lives on a volume so sessions survive restarts.
+    command: ["start", "--import-realm", "--http-enabled=true", "--http-port=8080",
+              "--health-enabled=true", "--db=dev-file"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?set KC_ADMIN_PASSWORD in deploy/.env}
+      CREWGATE_AUTH_CLIENT_SECRET: ${CREWGATE_AUTH_CLIENT_SECRET:?}
+      CREWGATE_APPROVALS_CLIENT_SECRET: ${CREWGATE_APPROVALS_CLIENT_SECRET:?}
+      CREWGATE_WEB_CLIENT_SECRET: ${CREWGATE_WEB_CLIENT_SECRET:?}
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+  mock-roster:
+    <<: *always
+    image: ${CREWGATE_IMAGE_PREFIX:-ghcr.io/binushefieldshifani/crewgate}-mock-roster:${CREWGATE_IMAGE_TAG:-latest}
+    environment:
+      MOCKAPI_HMAC_SECRETS: '["${CREW_HMAC_SECRET:?}"]'
+
+  gateway:
+    <<: *always
+    image: ${CREWGATE_IMAGE_PREFIX:-ghcr.io/binushefieldshifani/crewgate}-gateway:${CREWGATE_IMAGE_TAG:-latest}
+    environment:
+      CREWGATE_AUTH_CLIENT_SECRET: ${CREWGATE_AUTH_CLIENT_SECRET:?}
+      CREWGATE_APPROVALS_CLIENT_SECRET: ${CREWGATE_APPROVALS_CLIENT_SECRET:?}
+      CREWGATE_AUDIT_KEY: ${CREWGATE_AUDIT_KEY:?}
+      CREWGATE_PSEUDONYM_KEY: ${CREWGATE_PSEUDONYM_KEY:?}
+      CREW_HMAC_SECRET: ${CREW_HMAC_SECRET:?}
+      DUFFEL_ACCESS_TOKEN: ${DUFFEL_ACCESS_TOKEN:-}
+      DUFFEL_WEBHOOK_SECRETS: '["${DUFFEL_WEBHOOK_SECRET:?}"]'
+
+  web:
+    <<: *always
+    image: ${CREWGATE_IMAGE_PREFIX:-ghcr.io/binushefieldshifani/crewgate}-web:${CREWGATE_IMAGE_TAG:-latest}
+    environment:
+      WEB_CLIENT_SECRET: ${CREWGATE_WEB_CLIENT_SECRET:?}
+      WEB_PSEUDONYM_KEY: ${CREWGATE_PSEUDONYM_KEY:?}
+      AGENT_LLM_API_KEY: ${AGENT_LLM_API_KEY:-}
+
+  prometheus:
+    <<: *always
+
+  grafana:
+    <<: *always
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?}
+
+volumes:
+  keycloak-data:
