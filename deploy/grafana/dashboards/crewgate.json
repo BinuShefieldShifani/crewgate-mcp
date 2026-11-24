@@ -13,13 +13,14 @@
   "schemaVersion": 39,
   "panels": [
     {
+      "id": 99,
       "type": "stat",
-      "title": "Tool calls (24h)",
-      "description": "",
+      "title": "Scrape targets up",
+      "description": "Should be 2: the gateway and the console. 0 means Prometheus can't reach them.",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "datasource": {
@@ -28,7 +29,40 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(crewgate_tool_calls_total[24h]))",
+          "expr": "sum(up) or vector(0)",
+          "legendFormat": "up",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "stat",
+      "title": "Tool calls (24h)",
+      "description": "",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(crewgate_tool_calls_total[24h]))) or vector(0)",
           "legendFormat": "Tool calls (24h)",
           "refId": "A",
           "datasource": {
@@ -51,9 +85,9 @@
       "title": "Refused before running (24h)",
       "description": "Missing scope, not entitled, wrong market, bad token",
       "gridPos": {
-        "x": 6,
+        "x": 9,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 4
       },
       "datasource": {
@@ -62,7 +96,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(crewgate_denials_total[24h])) + sum(increase(crewgate_auth_failures_total[24h]))",
+          "expr": "(sum(increase(crewgate_denials_total[24h])) + sum(increase(crewgate_auth_failures_total[24h]))) or vector(0)",
           "legendFormat": "Refused before running (24h)",
           "refId": "A",
           "datasource": {
@@ -85,9 +119,9 @@
       "title": "Guard replaced a reply (24h)",
       "description": "Drafts that claimed more than the booking state allowed",
       "gridPos": {
-        "x": 12,
+        "x": 14,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 4
       },
       "datasource": {
@@ -96,7 +130,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(crewgate_agent_guard_total{decision=\"replaced\"}[24h]))",
+          "expr": "(sum(increase(crewgate_agent_guard_total{decision=\"replaced\"}[24h]))) or vector(0)",
           "legendFormat": "Guard replaced a reply (24h)",
           "refId": "A",
           "datasource": {
@@ -119,9 +153,9 @@
       "title": "Gateway p95 (5m)",
       "description": "",
       "gridPos": {
-        "x": 18,
+        "x": 19,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 4
       },
       "datasource": {
