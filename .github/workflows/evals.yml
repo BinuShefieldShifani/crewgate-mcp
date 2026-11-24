@@ -51,6 +51,9 @@ jobs:
       VARIANTS: ${{ inputs.variants || 'minimal,guided,contract' }}
       VARIANT: ${{ inputs.variant || 'guided' }}
       BUDGET: ${{ inputs.budget || '200' }}
+      # Groq's daily token limit is a rolling window: near it, a 429 asks to wait some minutes.
+      # An eval run can wait that out (the job has 90 minutes); the interactive agent keeps 65 s.
+      AGENT_LLM_MAX_WAIT_SECONDS: "900"
     steps:
       - name: Skip without a key
         if: env.AGENT_LLM_API_KEY == ''
