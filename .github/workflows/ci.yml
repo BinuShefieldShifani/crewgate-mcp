@@ -124,15 +124,47 @@ jobs:
           curl -fsI http://localhost:8090/ | grep -i "content-security-policy"
       # Not using aquasecurity/trivy-action: its version tags were force-pushed to malware in
       # March 2026 (GHSA-69fq-xp46-6x23). We run a pinned Trivy image that Aqua lists as clean.
-      # The DB comes from Google's mirror first, so GHCR rate limits don't fail the build.
+      # The vulnerability DB is downloaded ONCE per run (not once per image), from three
+      # registries in turn with backoff, and cached between runs. A mirror answering 429 then
+      # costs a retry, not a red build. If every registry fails, the scan uses the cached DB
+      # and says so in the summary; with no cached DB at all, the job fails.
+      - name: Restore Trivy DB cache
+        uses: actions/cache@v4
+        with:
+          path: .trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-db-${{ runner.os }}-
+      - name: Download Trivy DB
+        id: trivydb
+        run: |
+          mkdir -p .trivy-cache
+          trivy() { docker run --rm -v "$PWD/.trivy-cache:/root/.cache/trivy" ghcr.io/aquasecurity/trivy:0.69.2 "$@"; }
+          for attempt in 1 2 3; do
+            for repo in mirror.gcr.io/aquasec/trivy-db:2 public.ecr.aws/aquasecurity/trivy-db:2 ghcr.io/aquasecurity/trivy-db:2; do
+              if trivy image --download-db-only --db-repository "$repo" --no-progress; then
+                echo "db=fresh" >> "$GITHUB_OUTPUT"; echo "DB from $repo"; exit 0
+              fi
+              echo "::warning::Trivy DB download from $repo failed (attempt $attempt)"
+            done
+            sleep $((attempt * 30))
+          done
+          if [ -f .trivy-cache/db/trivy.db ]; then
+            echo "db=cached" >> "$GITHUB_OUTPUT"
+            echo "::warning::All Trivy DB registries failed; scanning with the cached DB"
+          else
+            echo "::error::No Trivy DB could be downloaded and none is cached"; exit 1
+          fi
       - name: Trivy image scan
         run: |
           : > trivy.txt
+          if [ "${{ steps.trivydb.outputs.db }}" = "cached" ]; then
+            echo "NOTE: every DB registry failed, this scan used the cached DB" | tee -a trivy.txt
+          fi
           for image in mock-roster gateway web; do
             echo "== crewgate/$image" | tee -a trivy.txt
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-              -e TRIVY_DB_REPOSITORY=mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2 \
-              ghcr.io/aquasecurity/trivy:0.69.2 image \
+              -v "$PWD/.trivy-cache:/root/.cache/trivy" \
+              ghcr.io/aquasecurity/trivy:0.69.2 image --skip-db-update \
               --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --no-progress \
               --format table --exit-code 1 "crewgate/$image:${{ github.sha }}" | tee -a trivy.txt
           done
