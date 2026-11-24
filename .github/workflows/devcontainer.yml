@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build with the Dev Containers CLI
         run: npx --yes @devcontainers/cli@0.83 build --workspace-folder . --log-level info
       - name: Tools the project needs are present
