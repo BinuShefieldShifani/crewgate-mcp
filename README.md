@@ -2,12 +2,27 @@
 
 [![ci](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/ci.yml)
 [![integration](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml/badge.svg)](https://github.com/BinuShefieldShifani/crewgate-mcp/actions/workflows/integration.yml)
+[![release](https://img.shields.io/github/v/release/BinuShefieldShifani/crewgate-mcp?sort=semver)](https://github.com/BinuShefieldShifani/crewgate-mcp/releases/latest)
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/BinuShefieldShifani/crewgate-mcp?quickstart=1)
 
 A shared, secure MCP core that lets AI agents work with real airline systems without leaking personal data, overstepping permissions or falling over when a partner API misbehaves. Two domain plugins prove it: **crew rosters** (mock partner API) and **flight booking** (Duffel test mode).
 
 Connecting an agent to a live system is mostly an identity and data-handling problem. The AI part is the easy half. This repo is the other half.
 
 Full design: [docs/DESIGN.md](docs/DESIGN.md)
+
+## See it run
+
+<!-- DEMO-VIDEO: drag the recording into this file on github.com, it becomes a user-attachments link -->
+
+A 90-second recording of the web console in a Codespace: a planner signs in, asks for cover on
+a sick day, proposes a swap and approves it on a separate sign-in; then a booking where the
+price changes after approval and nothing is booked. The script is in [docs/demo.md](docs/demo.md).
+
+To run it yourself, press **Open in GitHub Codespaces** above, then `make demo-public`
+(about 3 minutes the first time). Chat needs a free Groq key as the Codespaces secret
+`GROQ_API_KEY`; without it, sign-in, the tools and the approvals still work and chat is off.
 
 ## Status
 
@@ -20,8 +35,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
 | 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on Groq | Done |
 | 7a | Web console (BFF sign-in, chat, every step behind each reply), Prometheus and Grafana, the whole stack behind one public URL (Caddy), Codespaces demo | Done |
-| 7b | Always-on server (Oracle VM, domain, TLS, production Keycloak), releases: multi-arch images with SBOM and provenance, Sigstore-signed, deployed over SSH with rollback; load test | Done |
-| 7c | Live link, v1.0.0, pitch document | Next |
+| 7b | Server layout (TLS, production Keycloak, secrets from the server only, checked in CI on every PR), releases: multi-arch images with SBOM and provenance, Sigstore-signed, optional SSH deploy with rollback; load test | Done |
+| 7c | v1.0.0 release, demo recording, Codespaces button | Done |
 
 ## Run it
 
@@ -117,14 +132,28 @@ happened in the last 5 minutes. The agent's own token is refused there. See
 
 Every outcome lands in the HMAC-chained audit log (arguments stored as a SHA-256 digest, never raw) and in
 Prometheus metrics. Logs are JSON with tokens removed and personal data replaced by keyed pseudonyms.
-```
 
 ## Try it
 
 `make up` starts everything locally: the console at http://localhost:8090, Grafana at
 http://localhost:3000. Sign in as `anna` / `dev-only-anna`. In a Codespace, `make demo-public`
-puts the whole stack behind one public link, and a tagged release deploys it to an always-on
-server ([docs/deploy.md](docs/deploy.md), [ADR 0009](docs/adr/0009-releases-and-the-server.md)).
+puts the whole stack behind one public link. The same stack can run on an always-on server
+with TLS; a tagged release deploys to it when the server secrets are set
+([docs/deploy.md](docs/deploy.md), [ADR 0009](docs/adr/0009-releases-and-the-server.md)).
+
+## Releases
+
+Each tag `vX.Y.Z` builds the gateway, web console and mock roster images for amd64 and arm64,
+with an SBOM and build provenance, and signs them with Sigstore (keyless, through GitHub's OIDC
+identity). Check an image before you run it:
+
+```bash
+cosign verify ghcr.io/binushefieldshifani/crewgate-gateway:v1.0.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/BinuShefieldShifani/crewgate-mcp/'
+```
+
+Every release page lists the same commands for all three images.
 
 The console shows, next to each reply, every step behind it: the model's calls, each tool call
 through the gateway and whether it was refused, writes the agent stopped, and the guard's
