@@ -305,3 +305,16 @@ def test_daily_budget_and_session_expiry() -> None:
     store.new()  # sweeps the expired one
     assert len(store) == 1 and store.get(s2.id) is None
     store.drop(None)
+
+
+async def test_a_proxy_rewriting_origin_does_not_break_the_page() -> None:
+    """Codespaces' port forwarding rewrites Origin; the browser's Sec-Fetch-Site still tells the truth."""
+    async with console([say("hi"), say("hi")]) as c:
+        await c.sign_in()
+        rewritten = {"origin": "http://localhost:8443", "sec-fetch-site": "same-origin", "x-crewgate": "1"}
+        assert (await c.chat("hello", **rewritten)).status_code == 200
+        cross = {"origin": ORIGIN, "sec-fetch-site": "cross-site", "x-crewgate": "1"}
+        assert (await c.chat("hello", **cross)).status_code == 403
+        assert (
+            await c.chat("hello", **{"sec-fetch-site": "same-origin"})
+        ).status_code == 403  # no custom header

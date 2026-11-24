@@ -109,8 +109,17 @@ def create_app(
         return resp
 
     def same_origin(request: Request) -> bool:
-        origin = request.headers.get("origin")
-        return origin == s.origin and request.headers.get("x-crewgate") == "1"
+        """CSRF check for every POST. The custom header can't be sent cross-site without a CORS
+        preflight, which this app never allows. On top of that, the browser's Sec-Fetch-Site must
+        say same-origin. Proxies can rewrite Origin (GitHub Codespaces' port forwarding does), but
+        Sec-Fetch-Site is set by the browser alone and scripts can't fake it. Clients that don't
+        send it (scripts, old browsers) are checked on Origin instead."""
+        if request.headers.get("x-crewgate") != "1":
+            return False
+        site = request.headers.get("sec-fetch-site")
+        if site is not None:
+            return site in ("same-origin", "none")
+        return request.headers.get("origin") == s.origin
 
     def turns_left(sess: Session) -> int:
         recent = [t for t in sess.turns if clock() - t < 3600]
