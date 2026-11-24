@@ -16,7 +16,7 @@ def test_records_pending_approvals_from_any_write() -> None:
     _, approvals = facts_from_tool(
         "booking_book_flight", False, {"status": "awaiting_approval", "approval_id": "apr_1"}
     )
-    assert approvals == {"apr_1": {"tool": "booking_book_flight", "status": "pending"}}
+    assert approvals["apr_1"]["tool"] == "booking_book_flight" and approvals["apr_1"]["status"] == "pending"
 
 
 def test_records_booking_state_and_executed_approvals() -> None:
@@ -72,3 +72,29 @@ def test_unreadable_booking_data_is_ignored() -> None:
     facts = Facts({"bk_x": {"booking_id": "bk_x", "state": "nonsense"}}, {}, True)
     assert facts.booking_models() == []
     assert not guard_reply("It is booked.", facts).ok
+
+
+def test_awaiting_approval_reply_repeats_the_request_and_link() -> None:
+    """A replaced draft must not hide the price the person is about to approve."""
+    data = {
+        "status": "awaiting_approval",
+        "approval_id": "apr_1",
+        "summary": "Book offer off_1 for 1 passenger(s) (A. Berg) for exactly 301.00 EUR.",
+        "approve_url": "http://localhost:8000/approvals/apr_1",
+    }
+    _, approvals = facts_from_tool("booking_book_flight", False, data)
+    d = guard_reply("Your flight is booked!", Facts({}, approvals, True))
+    assert d.reply.startswith(AWAITING_APPROVAL)
+    assert "301.00 EUR" in d.reply and "http://localhost:8000/approvals/apr_1" in d.reply
+
+
+@pytest.mark.parametrize(
+    "draft", ["E‑tickets issued for both passengers.", "You’re flying on Friday!", "It is **booked**."]
+)
+def test_typographic_claims_are_caught(draft: str) -> None:
+    assert not guard_reply(draft, Facts({}, {}, True)).ok
+
+
+def test_typographic_negations_still_pass() -> None:
+    facts = Facts({"bk_1": booking(BookingState.PENDING_CONFIRMATION)}, {}, True)
+    assert guard_reply("It isn’t confirmed yet.", facts).ok

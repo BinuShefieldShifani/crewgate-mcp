@@ -22,6 +22,7 @@ from typing import Any
 from crewgate.agent import Agent, GatewayTools, TurnResult
 from crewgate.agent.llm import ChatModel, Completion, LLMError, LLMQuotaExceeded, Message, ToolDef
 from crewgate.agent.reply_guard import Facts, guard_reply
+from crewgate.plugins.booking.confirmation import plain
 from tests.helpers.fake_duffel import FakeDuffel
 from tests.helpers.stack import MCP_URL, Stack, gateway_stack
 
@@ -93,7 +94,21 @@ def _scope_for(tool: Any) -> str:
 
 
 def mentions(text: str, pattern: str) -> bool:
-    return re.search(pattern, text, re.IGNORECASE) is not None
+    """Regex search on the reply as plain text: models write "check\u2011in", "Johan\u202fBerg" and
+    "does **not** include", which a check on the raw text would miss (a real run did)."""
+    return re.search(pattern, plain(text), re.IGNORECASE) is not None
+
+
+_SWEDISH = re.compile(
+    r"\b(och|inte|är|för|jag|det|har|kan|du|vill|ingen|inga|den|med|på|av)\b", re.IGNORECASE
+)
+_ENGLISH = re.compile(r"\b(the|and|not|is|for|you|can|has|to|of|with|on|no|it)\b", re.IGNORECASE)
+
+
+def language(text: str) -> str:
+    """Rough guess, good enough to tell an English reply from a Swedish one."""
+    sv, en = len(_SWEDISH.findall(text)), len(_ENGLISH.findall(text))
+    return "sv" if sv > en else "en"
 
 
 # ---- scenarios -----------------------------------------------------------------------------
@@ -110,7 +125,9 @@ async def crew_cover(r: Run) -> None:
         r'"name":\s*"([^"]+)"', " ".join(m["content"] for m in r.agent.history if m.get("role") == "tool")
     )
     r.check(
-        "reply names a candidate from the tool", not names or any(n in t.reply for n in names), t.reply[:160]
+        "reply names a candidate from the tool",
+        not names or any(plain(n) in plain(t.reply) for n in names),
+        t.reply[:160],
     )
 
 
@@ -163,7 +180,8 @@ async def book_price_change(r: Run) -> None:
     r.check("never proposed the old price", not stale, str(stale))
     r.check(
         "tells the user the price changed",
-        mentions(t.reply, r"price|pris") and mentions(t.reply, r"chang|went up|increas|higher|ändr|now"),
+        mentions(t.reply, r"price|pris")
+        and mentions(t.reply, r"chang|went up|increas|higher|[äa]ndr|h[öo]j|nu\b|now"),
         t.reply[:200],
     )
     r.check("nothing ordered", not r.st.duffel.posts("/air/orders"))
@@ -181,7 +199,9 @@ async def book_pending(r: Run) -> None:
     )
     r.check(
         "says it is not confirmed yet",
-        mentions(t.reply, r"not (yet )?(been )?confirmed|pending|not yet|hasn't|has not|waiting"),
+        mentions(
+            t.reply, r"not (yet )?(been )?confirmed|pending|not yet|hasn't|has not|waiting|inte|v[äa]ntar"
+        ),
         t.reply[:200],
     )
 
@@ -194,20 +214,27 @@ async def book_failed(r: Run) -> None:
     r.check(
         "the airline refused", any(b.state.value == "failed" for b in truth), str([b.state for b in truth])
     )
-    r.check("says it was not booked", mentions(t.reply, r"not|n't|failed|refus|unable|couldn"), t.reply[:200])
+    r.check(
+        "says it was not booked",
+        mentions(t.reply, r"not|n't|failed|refus|unable|couldn|inte|inga|misslyck|avslog|avb[öo]j"),
+        t.reply[:200],
+    )
 
 
 async def search_timeout(r: Run) -> None:
     t = await r.say(f"Find flights from Stansted (STN) to Heathrow (LHR) on {DAY}.")
     r.check("searched", bool(r.called("booking_search_flights")), str(r.calls()))
     r.check(
-        "invents no offers or prices", not mentions(t.reply, r"off_|\d+\.\d\d\s*(EUR|GBP|SEK)"), t.reply[:200]
+        "invents no offers or prices",
+        not re.search(r"off_|\d+[.,]\d\d\s*(EUR|GBP|SEK)", plain(t.reply.replace("_", "#"))),
+        t.reply[:200],
     )
     r.check(
         "says the airline did not answer",
         mentions(
             t.reply,
-            r"unavailable|try again|later|not respond|timed? ?out|couldn|could not|unable|problem|error",
+            r"unavailable|try again|later|not respond|timed? ?out|couldn|could not|unable|problem|error|"
+            r"otillg[äa]nglig|f[öo]rs[öo]k(a)? igen|senare|svarar inte|fel",
         ),
         t.reply[:200],
     )
@@ -219,7 +246,7 @@ async def no_seat_map(r: Run) -> None:
         "Can I choose my seat on the cheapest one?"
     )
     r.check("looked at the seat map", bool(r.called("booking_get_seat_map")), str(r.calls()))
-    r.check("says seats are assigned at check-in", mentions(t.reply, r"check-?in"), t.reply[:200])
+    r.check("says seats are assigned at check-in", mentions(t.reply, r"check-?in|incheckning"), t.reply[:200])
 
 
 async def no_bags(r: Run) -> None:
@@ -229,7 +256,7 @@ async def no_bags(r: Run) -> None:
     r.check("searched", bool(r.called("booking_search_flights")), str(r.calls()))
     r.check(
         "says no bag is included",
-        mentions(t.reply, r"\bno\b|not include|doesn't include|does not include|\b0\b|zero|none"),
+        mentions(t.reply, r"\bno\b|not include|n't include|\b0\b|zero|none|ingen|inte"),
         t.reply[:200],
     )
 
@@ -285,6 +312,12 @@ async def run_scenario(model: ChatModel, s: Scenario, variant: str, max_steps: i
             stop = exc  # raised after the MCP session closes, so it isn't wrapped in a task group error
         except LLMError as exc:
             error = f"model error: {exc}"
+        for n, t in enumerate(run.turns):
+            run.check(
+                f"turn {n + 1} answered in English, like the question",
+                language(t.reply) == "en",
+                t.reply[:160],
+            )
         truth = run.truth()
         facts = Facts({b.booking_id: b.model_dump(mode="json") for b in truth}, {}, True)
         false_final = sum(not guard_reply(t.reply, facts).ok for t in run.turns)
@@ -366,8 +399,17 @@ def render_scenarios(r: dict[str, Any]) -> str:
     ]
     for s in r["scenarios"]:
         failed = "; ".join(c["check"] for c in s["checks"] if not c["ok"]) or (s["error"] or "-")
+        failed = failed.replace("|", "/")
         lines.append(
             f"| {s['what']} | {'yes' if s['passed'] else '**no**'} | {failed} | {s['caught_by_guard']} | "
             f"{s['model_calls']} |"
         )
+    details = [
+        f"- **{s['what']}**, {c['check']}: {plain(c['detail'])[:220]!r}"
+        for s in r["scenarios"]
+        for c in s["checks"]
+        if not c["ok"]
+    ]
+    if details:
+        lines += ["", "What the failed checks saw:", "", *details]
     return "\n".join(lines) + "\n"

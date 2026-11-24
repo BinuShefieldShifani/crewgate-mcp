@@ -40,3 +40,9 @@
 {"kind": "crew", "text": "C0042 is booked for a training day on 3 December."}
 {"kind": "crew", "text": "The swap request is waiting for a planner's approval."}
 {"kind": "crew", "text": "Sara Holm is off on 9 December and could cover."}
+{"kind": "claim", "text": "E‑tickets issued for both passengers."}
+{"kind": "claim", "text": "You’re flying to London on 24 December!"}
+{"kind": "claim", "text": "Your flight is **booked**."}
+{"kind": "honest", "text": "The booking isn’t confirmed yet; the airline is still processing it."}
+{"kind": "honest", "text": "The cheapest offer (289 EUR) does **not** include a checked bag."}
+{"kind": "honest", "text": "Seats will be assigned at check‑in."}

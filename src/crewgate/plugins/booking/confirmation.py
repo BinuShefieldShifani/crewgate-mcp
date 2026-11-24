@@ -10,10 +10,30 @@ many phrasings, in English and Swedish, including negations that must NOT be blo
 """
 
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .state import Booking, BookingState
+
+# Models write typographic characters: "e\u2011ticket" (non-breaking hyphen), "you\u2019re",
+# "Johan\u202fBerg", "**not**". Seen in real gpt-oss replies. Text is normalised to plain ASCII
+# punctuation before matching, or "E\u2011tickets issued" would slip past the guard.
+_PLAIN = str.maketrans(
+    {
+        **dict.fromkeys(["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212"], "-"),
+        **dict.fromkeys(["\u2018", "\u2019", "\u02bc", "\u2032", "`"], "'"),
+        **dict.fromkeys(["\u00a0", "\u2007", "\u2009", "\u200a", "\u202f", "\u205f", "\u3000"], " "),
+        **dict.fromkeys(["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "*", "_"], None),
+    }
+)
+
+
+def plain(text: str) -> str:
+    """Typographic hyphens, quotes and spaces as ASCII; markdown emphasis and zero-width characters
+    removed. "does **not** include" becomes "does not include"."""
+    return unicodedata.normalize("NFKC", text).translate(_PLAIN)
+
 
 # Words that claim the booking is done.
 _CLAIMS = re.compile(
@@ -38,6 +58,7 @@ class ReplyCheck:
 
 
 def find_claims(reply: str) -> list[str]:
+    reply = plain(reply)
     claims = []
     for m in _CLAIMS.finditer(reply):
         before = reply[max(0, m.start() - 40) : m.start()]
