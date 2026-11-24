@@ -14,7 +14,9 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 
 ## See it run
 
-<!-- DEMO-VIDEO: drag the recording into this file on github.com, it becomes a user-attachments link -->
+
+https://github.com/user-attachments/assets/7694ecfe-71ec-44d1-8586-3efd6fa56484
+
 
 A 90-second recording of the web console in a Codespace: a planner signs in, asks for cover on
 a sick day, proposes a swap and approves it on a separate sign-in; then a booking where the
