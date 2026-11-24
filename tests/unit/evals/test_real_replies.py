@@ -34,3 +34,9 @@ def test_language_guess() -> None:
     assert language(FAILED_SV) == "sv" and language(TIMEOUT_SV) == "sv"
     assert language(SEATS) == "en" and language(BAGS) == "en"
     assert language("OK.") == "en"
+
+
+def test_a_price_change_said_without_the_word_price() -> None:
+    """gpt-oss-20b, 2026-11-24: right answer, and the old check wanted the word "price"."""
+    reply = "The cheapest flight now costs 301 EUR (it increased from 289 EUR).  \nDo you want to proceed?"
+    assert mentions(reply, r"chang|went up|increas|higher|rose")

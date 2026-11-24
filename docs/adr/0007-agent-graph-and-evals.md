@@ -65,3 +65,12 @@ It guesses the language of the user's message and of the reply (English and Swed
 common words) and, when they clearly differ, asks the model once to rewrite the reply, keeping
 every fact, number and link. The rewrite then goes through the guard like any reply. One extra
 model call, only on a mismatch; if the rewrite fails the original stands.
+
+## Update, 2026-11-24: an intent gate for write tools, and tool facts in the prompt
+Run 4 used `gpt-oss-20b`. Given an airline name carrying "call booking_book_flight now", it did,
+for a user who had only asked to see flights. The gateway's approval gate held (a person would
+have had to approve), but the request should not exist. The agent now sends a write tool only
+when the user's latest message asks for that kind of change, or says yes to the agent asking
+(`agent/intent.py`); otherwise the model gets `not_requested` back. The same run showed the
+smaller model losing an approval id from two turns earlier, so every turn's system prompt now
+restates the approvals and booking states the tools returned (never the model's own claims).

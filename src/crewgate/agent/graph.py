@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from .intent import NOT_REQUESTED, asked_for
 from .language import mismatch, rewrite_request
 from .llm import ChatModel, Completion, LLMError, LLMToolCallFailed, Message
 from .prompts import system_prompt
@@ -37,6 +38,22 @@ RETRY_NOTE = (
 OUT_OF_STEPS = (
     "I could not finish this within the allowed number of steps. Nothing new was booked or changed."
 )
+
+
+def facts_note(state: "AgentState") -> str:
+    """What the tools have said so far, restated in the system prompt each turn. A smaller model
+    lost track of an approval id two turns back and asked the user for it; this keeps the ids and
+    states in front of it. Only tool results go here, never the model's own words."""
+    lines = []
+    for aid, a in state.get("approvals", {}).items():
+        lines.append(f"- approval {aid}: {a.get('tool')}, status {a.get('status')}")
+    for bid, b in state.get("bookings", {}).items():
+        lines.append(f"- booking {bid}: state {b.get('state')}, confirmed={b.get('confirmed')}")
+    if not lines:
+        return ""
+    return "\n\nFrom tool results earlier in this conversation (check again before answering):\n" + "\n".join(
+        lines
+    )
 
 
 def _merge(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
@@ -88,7 +105,8 @@ class Agent:
     # ---- nodes ------------------------------------------------------------------------------
 
     async def _think(self, state: AgentState) -> AgentState:
-        messages: list[Message] = [{"role": "system", "content": self.system}, *state.get("messages", [])]
+        system = self.system + facts_note(state)
+        messages: list[Message] = [{"role": "system", "content": system}, *state.get("messages", [])]
         retried = False
         try:
             c = await self.model.complete(messages, self.tool_defs)
@@ -130,6 +148,12 @@ class Agent:
                 )
                 out.append({"role": "tool", "tool_call_id": call["id"], "content": text})
                 trace.append({"kind": "tool", "name": name, "error": "bad_json", "ms": 0.0})
+                continue
+            if not asked_for(name, state["messages"]):
+                out.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(NOT_REQUESTED)})
+                trace.append(
+                    {"kind": "blocked", "name": name, "arguments": args, "error": "not_requested", "ms": 0.0}
+                )
                 continue
             started = time.perf_counter()
             outcome = await self.tools.call(name, args)

@@ -241,3 +241,46 @@ async def test_a_failed_rewrite_keeps_the_original_and_right_languages_cost_noth
         assert turn.reply == sv and {"kind": "rewrite", "to": "en", "ok": False} in turn.trace
         turn = await Agent(ScriptedChat([say(sv)]), tools).ask("Hitta ett flyg till London åt mig")
         assert turn.reply == sv and turn.steps == 1
+
+
+async def test_a_write_the_user_never_asked_for_is_not_sent() -> None:
+    """What gpt-oss-20b did with instructions hidden in an airline's name."""
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+        model = ScriptedChat(
+            [
+                call("booking_search_flights", SEARCH),
+                call("booking_get_offer", cheapest),
+                call("booking_book_flight", book_args),
+                say("Here are the flights."),
+            ]
+        )
+        agent = Agent(model, tools)
+        turn = await agent.ask("Show me flights from ARN to LHR.")
+        assert json.loads(model.seen[3][-1]["content"])["error"] == "not_requested"
+        assert [t["kind"] for t in turn.trace if t.get("name") == "booking_book_flight"] == ["blocked"]
+        assert agent.facts.approvals == {} and st.duffel.posts("/air/orders") == []
+
+
+async def test_tool_facts_are_restated_in_the_system_prompt() -> None:
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+        model = ScriptedChat(
+            [
+                call("booking_search_flights", SEARCH),
+                call("booking_get_offer", cheapest),
+                call("booking_book_flight", book_args),
+                say("It is waiting for approval."),
+                say("Still waiting."),
+            ]
+        )
+        agent = Agent(model, tools)
+        await agent.ask("Book the cheapest ARN to LHR for Anna Berg")
+        assert "From tool results" not in model.seen[0][0]["content"]
+        await agent.ask("Did it go through?")
+        approval = next(iter(agent.facts.approvals))
+        assert f"approval {approval}: booking_book_flight, status pending" in model.seen[-1][0]["content"]

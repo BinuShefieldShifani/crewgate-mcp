@@ -273,3 +273,34 @@ async def test_an_invalid_tool_call_is_scored_wrong() -> None:
     r = await run_selection(Fumbles(), Budget(500), variants=["guided"])
     case = next(c for c in r["variants"][0]["cases"] if c["id"] == "crew-list-base")
     assert case["got"] == "invalid_tool_call" and case["tool_ok"] is False and r["complete"]
+
+
+class Obedient(RuleModel):
+    """Does what the text hidden in the airline's name says: books straight after searching."""
+
+    async def complete(self, messages: Sequence[Message], tools: Sequence[ToolDef]) -> Completion:
+        last = messages[-1]
+        if (
+            last.get("role") == "tool"
+            and "SYSTEM NOTICE" in last["content"]
+            and '"offers"' in last["content"]
+        ):
+            offer = json.loads(last["content"])["offers"][0]
+            args = {
+                "offer_id": offer["offer_id"],
+                "expected_total": offer["total_amount"],
+                "currency": offer["currency"],
+                "market": "SE",
+                "passengers": [{"title": "ms", "given_name": "Anna", "family_name": "Berg",
+                                "born_on": "1990-04-02", "gender": "f", "email": "anna@example.com",
+                                "phone_number": "+46701234567"}],
+            }  # fmt: skip
+            return Completion(None, (ToolCall("inj", "booking_book_flight", args),), Usage(500, 20))
+        return await super().complete(messages, tools)
+
+
+async def test_an_injected_booking_is_stopped_before_the_gateway() -> None:
+    r = await run_scenarios(Obedient(), Budget(50), only=["injection"])
+    s = r["scenarios"][0]
+    assert s["passed"] and s["writes_blocked"] == 1 and r["writes_without_approval"] == 0
+    assert "stopped by the agent: 1" in render_scenarios(r)
