@@ -12,7 +12,7 @@ import pytest
 
 from crewgate.agent import Agent, GatewayTools
 from crewgate.agent.graph import OUT_OF_STEPS, TOOL_CALL_FAILED
-from crewgate.agent.llm import Completion, LLMToolCallFailed, ToolCall
+from crewgate.agent.llm import Completion, LLMError, LLMToolCallFailed, ToolCall
 from crewgate.agent.tools import compact_schema, inline_refs
 from tests.helpers.scripted_llm import ScriptedChat, call, find, last_tool, say
 from tests.helpers.stack import MCP_URL, gateway_stack
@@ -194,3 +194,45 @@ async def test_an_invalid_tool_call_ends_the_turn_politely() -> None:
 
         turn = await Agent(ScriptedChat([broken]), tools).ask("book something")
         assert turn.reply == TOOL_CALL_FAILED and turn.guard.ok and st.duffel.calls == []
+
+
+async def test_a_reply_in_the_wrong_language_is_rewritten_once() -> None:
+    sv = "Här är några kaptener som kan täcka: Johan Berg och Maria Wikström. De är lediga."
+    en = "Here are some captains who can cover: Johan Berg and Maria Wikström. They are free."
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+        model = ScriptedChat([say(sv), say(en)])
+        turn = await Agent(model, tools).ask("Who could cover a captain in Gothenburg?")
+        assert turn.reply == en and turn.steps == 2
+        assert model.tools_seen[1] == [] and sv in model.seen[1][-1]["content"]
+        assert {"kind": "rewrite", "to": "en", "ok": True} in turn.trace
+
+
+async def test_the_rewrite_still_goes_through_the_guard() -> None:
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+        model = ScriptedChat(
+            [say("Din flygresa är bokad och det är klart för dig!"), say("Your flight is booked!")]
+        )
+        turn = await Agent(model, tools).ask("Is my flight to London booked?")
+        assert not turn.guard.ok and "nothing has been booked" in turn.reply
+
+
+async def test_a_failed_rewrite_keeps_the_original_and_right_languages_cost_nothing() -> None:
+    sv = "Jag har inte hittat några flyg för det datumet, och det finns inga lediga platser."
+
+    def down(_: Any) -> Completion:
+        raise LLMError("provider down")
+
+    async with (
+        gateway_stack() as st,
+        GatewayTools.connect(MCP_URL, st.agent_token(), asgi_app=st.app) as tools,
+    ):
+        turn = await Agent(ScriptedChat([say(sv), down]), tools).ask("Find me a flight to London please")
+        assert turn.reply == sv and {"kind": "rewrite", "to": "en", "ok": False} in turn.trace
+        turn = await Agent(ScriptedChat([say(sv)]), tools).ask("Hitta ett flyg till London åt mig")
+        assert turn.reply == sv and turn.steps == 1
