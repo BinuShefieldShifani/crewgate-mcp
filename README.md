@@ -19,7 +19,8 @@ Full design: [docs/DESIGN.md](docs/DESIGN.md)
 | 4 | MCP server (streamable HTTP, stateless, MCP SDK 2.3 low-level API): PRM, structured tools, out-of-band human approval of writes, raw JSON-RPC tests | Done |
 | 5 | Booking plugin on Duffel's real test API: search, offers, seats, bags, price re-check after approval, every sandbox quirk, no duplicate bookings, verified webhooks, order-derived booking state and the "never say confirmed" guard, nightly contract tests | Done |
 | 6 | LangGraph agent through the MCP gateway with the confirmation guard on every reply; three tool-description variants; evals: offline (guard, 22 attacks, 11 Duffel quirks, gateway overhead) on every PR, tool-selection accuracy and end-to-end agent scenarios on Groq | Done |
-| 7 | Dashboards, load test, release, pitch | Next |
+| 7a | Web console (BFF sign-in, chat, every step behind each reply), Prometheus and Grafana, the whole stack behind one public URL (Caddy), Codespaces demo | Done |
+| 7b | Always-on deployment (Oracle VM, domain, TLS), CD with signed images and SBOM, load test, release, pitch | Next |
 
 ## Run it
 
@@ -36,6 +37,8 @@ make demo-booking # Step 5: book on Duffel's real test API (start the stack with
 make contract     # contract tests against Duffel's real test API
 make eval-offline # Step 6: guard, attacks, Duffel quirks, gateway overhead (no model)
 make agent        # Step 6: chat with the agent on the running stack (needs AGENT_LLM_API_KEY)
+make demo-web     # Step 7: sign in to the web console like a browser and ask the agent
+make demo-public  # Step 7: in a Codespace, everything behind one public URL
 make audit-verify # check the audit file's HMAC chain
 make down         # stop and remove the stack
 ```
@@ -114,6 +117,17 @@ Every outcome lands in the HMAC-chained audit log (arguments stored as a SHA-256
 Prometheus metrics. Logs are JSON with tokens removed and personal data replaced by keyed pseudonyms.
 ```
 
+## Try it
+
+`make up` starts everything locally: the console at http://localhost:8090, Grafana at
+http://localhost:3000. Sign in as `anna` / `dev-only-anna`. In a Codespace, `make demo-public`
+puts the whole stack behind one public link ([docs/deploy.md](docs/deploy.md)).
+
+The console shows, next to each reply, every step behind it: the model's calls, each tool call
+through the gateway and whether it was refused, writes the agent stopped, and the guard's
+decision, including any draft it replaced. Writes link to the approval page, where the person
+signs in again before anything happens ([ADR 0008](docs/adr/0008-web-console-and-one-public-url.md)).
+
 ## The agent and the evals
 
 `src/crewgate/agent/` is a LangGraph agent that works only through the gateway, with the official
@@ -173,8 +187,9 @@ src/crewgate/core/auth/  JWT/JWKS verifier, PRM, OBO token exchange
 src/crewgate/clientauth/ MCP client side: discovery, PKCE
 src/crewgate/plugins/    crew, booking
 src/crewgate/agent/      LangGraph agent, model client, reply guard
+src/crewgate/web/        web console: BFF sign-in, chat API, the page
 services/                mock partner APIs
-deploy/                  docker compose stack, Keycloak realm
+deploy/                  compose stack, public overlay, Caddy edge, Keycloak realm, Prometheus, Grafana
 evals/                   offline, tool-selection and agent-scenario evals, datasets
 docs/                    design and ADRs
 ```

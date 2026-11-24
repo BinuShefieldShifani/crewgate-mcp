@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crewgate console</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="mark">cg</span> crewgate <span class="muted">console</span></div>
+    <nav id="nav">
+      <a id="grafana" class="link" target="_blank" rel="noopener" hidden>Dashboards</a>
+      <a class="link" href="https://github.com/BinuShefieldShifani/crewgate-mcp" target="_blank" rel="noopener">Source</a>
+      <span id="who" class="who" hidden></span>
+      <button id="logout" class="ghost" hidden>Sign out</button>
+    </nav>
+  </header>
+
+  <main id="signed-out" class="hero" hidden>
+    <h1>An agent that can book flights and swap crew duties, and can't lie about it.</h1>
+    <p class="lead">
+      Every message goes through a secure MCP gateway: real OAuth sign-in, per-app permissions,
+      rate limits and an audit log. Bookings run against Duffel's test API. Writes wait for a
+      person to approve them, and the agent is never allowed to say "confirmed" unless the
+      airline order says so.
+    </p>
+    <a class="primary" href="/login">Sign in to try it</a>
+    <p class="note" id="note"></p>
+    <p class="error" id="signin-error" hidden></p>
+    <ul class="facts">
+      <li><b>Sign-in</b> OAuth 2.1 code flow with PKCE; tokens never reach your browser.</li>
+      <li><b>Every reply</b> checked against the real booking state before you see it.</li>
+      <li><b>Every step</b> shown on the right: tool calls, refusals, approvals.</li>
+    </ul>
+  </main>
+
+  <main id="signed-in" class="console" hidden>
+    <section class="chat">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="suggestions" class="suggestions"></div>
+      <form id="form" class="composer">
+        <textarea id="input" rows="2" maxlength="1000" placeholder="Ask about crew cover, or find and book a flight..." required></textarea>
+        <div class="row">
+          <span id="limits" class="muted small"></span>
+          <span class="spacer"></span>
+          <button type="button" id="reset" class="ghost">New conversation</button>
+          <button id="send" class="primary">Send</button>
+        </div>
+      </form>
+    </section>
+    <aside class="trace">
+      <h2>Behind the reply</h2>
+      <p class="muted small" id="trace-hint">Send a message to see each step the agent and the gateway took.</p>
+      <ol id="steps" class="steps"></ol>
+      <div id="approvals"></div>
+      <div id="bookings"></div>
+    </aside>
+  </main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# The only public entry point. One origin for everything, so sign-in cookies, the console and
+# the approval pages all live on one URL (a Codespaces port or a real domain).
+#
+# CREWGATE_SITE is ":8443" for plain HTTP behind a proxy that already does TLS (Codespaces,
+# CI), or a domain name, for which Caddy gets and renews a Let's Encrypt certificate itself.
+{$CREWGATE_SITE::8443} {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+
+	# Internal only: metrics, Keycloak's admin console and master realm.
+	@internal path /metrics /metrics/* /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/*
+	respond @internal 404
+
+	handle /auth/* {
+		reverse_proxy keycloak:8080
+	}
+	handle /grafana/* {
+		reverse_proxy grafana:3000
+	}
+	@gateway path /mcp /mcp/* /approvals/* /webhooks/* /.well-known/oauth-protected-resource*
+	handle @gateway {
+		reverse_proxy gateway:8000
+	}
+	handle {
+		reverse_proxy web:8090
+	}
+}

@@ -32,7 +32,7 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --frozen --all-extras
-      - name: Start Keycloak, mock crew API and gateway
+      - name: Start the stack (Keycloak, mock API, gateway, console, Prometheus, Grafana)
         run: docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
       - name: Integration tests
         run: uv run pytest -m integration tests/integration -v --junitxml=integration.xml
@@ -52,6 +52,18 @@ jobs:
         if: env.AGENT_LLM_API_KEY != ''
         continue-on-error: true
         run: uv run python scripts/agent_chat.py --once "Who could cover a captain at Gothenburg on 2026-12-05?"
+      - name: Demo, Step 7 (the web console, signed in like a browser)
+        run: uv run python scripts/demo_web.py
+      - name: Prometheus scrapes the gateway and the console
+        run: |
+          for i in $(seq 1 12); do
+            up=$(curl -s 'http://localhost:9090/api/v1/query?query=up' | python3 -c "import sys,json; r=json.load(sys.stdin)['data']['result']; print(sum(1 for x in r if x['value'][1]=='1'))")
+            [ "$up" = "2" ] && { echo "both targets up"; exit 0; }
+            sleep 5
+          done
+          echo "Prometheus targets not up" >&2; exit 1
+      - name: Grafana has the dashboard
+        run: curl -sf http://localhost:3000/api/dashboards/uid/crewgate | python3 -c "import sys,json; print(json.load(sys.stdin)['dashboard']['title'])"
       - name: Gateway audit chain (the gateway's own file, inside its container)
         run: |
           docker compose -f deploy/docker-compose.yml cp gateway:/app/var/audit.jsonl var/gateway-audit.jsonl
@@ -62,3 +74,39 @@ jobs:
       - name: Stop stack
         if: always()
         run: docker compose -f deploy/docker-compose.yml down -v
+
+  edge:
+    # The public layout: one URL, Caddy in front, Keycloak under /auth. Same files a Codespace
+    # or a server uses, with http://localhost:8443 standing in for the public URL.
+    name: Public edge (Caddy, one URL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CREWGATE_PUBLIC_URL: http://localhost:8443
+      CREWGATE_PUBLIC_HOST: localhost
+      AGENT_LLM_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - name: Start the stack behind the edge
+        run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml up -d --build --wait --wait-timeout 300
+      - name: Only the edge is published
+        run: |
+          for port in 8000 8001 8080 8090 9090 3000; do
+            if curl -s -o /dev/null --max-time 3 "http://localhost:$port/"; then echo "port $port is open" >&2; exit 1; fi
+          done
+          echo "only 8443 answers"
+      - name: Console sign-in, chat and blocked paths through the edge
+        run: uv run python scripts/demo_web.py --base http://localhost:8443 --edge
+      - name: Dashboards through the edge
+        run: curl -sf http://localhost:8443/grafana/api/health
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml down -v

@@ -1,4 +1,4 @@
-.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration eval-offline eval-selection eval-scenarios agent
+.PHONY: install lint fmt type test cov security check up down logs demo demo-m2m demo-guard demo-mcp demo-booking contract gateway audit-verify integration eval-offline eval-selection eval-scenarios agent web demo-web demo-public
 
 install:      ## install all deps from the lockfile
 	uv sync --frozen --all-extras
@@ -27,7 +27,7 @@ security:
 
 check: lint type cov security   ## everything CI runs, except the image scan
 
-up:           ## start Keycloak, mock crew API and the gateway, wait until all are healthy
+up:           ## start Keycloak, mock API, gateway, web console, Prometheus, Grafana; wait until healthy
 	docker compose -f deploy/docker-compose.yml up -d --build --wait --wait-timeout 240
 
 down:
@@ -74,3 +74,12 @@ eval-scenarios: ## Step 6: agent end-to-end on Duffel's quirk routes (AGENT_LLM_
 
 agent:        ## Step 6: chat with the agent against the running stack (make up, AGENT_LLM_API_KEY set)
 	uv run python scripts/agent_chat.py
+
+web:          ## Step 7: run the web console locally on :8090 (make up for everything else)
+	uv run python -m crewgate.web
+
+demo-web:     ## Step 7: sign in to the console like a browser and ask the agent (make up first)
+	uv run python scripts/demo_web.py
+
+demo-public:  ## Step 7: in a Codespace, the whole stack behind one public URL
+	bash scripts/codespace_demo.sh
