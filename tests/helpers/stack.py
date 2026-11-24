@@ -75,7 +75,9 @@ class Stack:
 
 
 @contextlib.asynccontextmanager
-async def gateway_stack(variant: str = "guided", duffel: FakeDuffel | None = None) -> AsyncIterator[Stack]:
+async def gateway_stack(
+    variant: str = "guided", duffel: FakeDuffel | None = None, entitlements: Path | None = None
+) -> AsyncIterator[Stack]:
     """Start the gateway with every plugin. The env vars only hold dev-only placeholders."""
     with _env(
         DUFFEL_ACCESS_TOKEN="duffel_test_" + "x" * 20,  # placeholder, never a real token
@@ -95,7 +97,7 @@ async def gateway_stack(variant: str = "guided", duffel: FakeDuffel | None = Non
             public_url=BASE,
             allowed_hosts=["testserver"],
             allowed_origins=[BASE],
-            entitlements_path=str(REPO / "config" / "entitlements.toml"),
+            entitlements_path=str(entitlements or REPO / "config" / "entitlements.toml"),
             approvals_authorize_url="https://idp.test/realms/crewgate/protocol/openid-connect/auth",
             tool_descriptions=variant,
         )

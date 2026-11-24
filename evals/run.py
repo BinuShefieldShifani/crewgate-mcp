@@ -24,6 +24,7 @@ from crewgate.agent.settings import AgentSettings
 from crewgate.core.descriptions import VARIANTS
 
 from .common import Budget, write_json
+from .load import render_load, run_load
 from .offline import render_offline, run_offline
 from .scenarios import SCENARIOS, render_scenarios, run_scenarios
 from .selection import render_selection, run_selection
@@ -44,7 +45,7 @@ def publish(name: str, result: dict[str, Any], markdown: str, out: Path) -> None
 async def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.ERROR)  # the attack evals trigger expected warnings
     p = argparse.ArgumentParser(prog="evals.run")
-    p.add_argument("suite", choices=["offline", "selection", "scenarios", "all", "probe"])
+    p.add_argument("suite", choices=["offline", "load", "selection", "scenarios", "all", "probe"])
     p.add_argument("--model", help="e.g. openai/gpt-oss-120b (default: AGENT_LLM_MODEL)")
     p.add_argument("--variants", default=",".join(VARIANTS), help="for selection, comma separated")
     p.add_argument("--variant", default="guided", help="descriptions the scenarios run with")
@@ -61,6 +62,10 @@ async def main(argv: list[str] | None = None) -> int:
         failed |= not r["passed"]
     if a.suite == "offline":
         return 1 if failed else 0
+    if a.suite == "load":
+        r = await run_load()
+        publish("load", r, render_load(r), a.out)
+        return 0 if r["passed"] else 1
 
     settings = AgentSettings(**({"llm_model": a.model} if a.model else {}))
     model = settings.chat_model()
