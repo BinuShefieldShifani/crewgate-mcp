@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from crewgate.plugins.booking.confirmation import check_reply, find_claims
+from crewgate.plugins.booking.confirmation import check_reply, find_claims, plain
 from crewgate.plugins.booking.state import Booking
 
 _FLIGHT_WORDS = re.compile(
@@ -28,6 +28,18 @@ AWAITING_APPROVAL = (
     "Nothing is booked yet. The booking is waiting for approval: open the approval link to approve "
     "or reject it, and I will check the result afterwards."
 )
+
+
+def awaiting_reply(waiting: list[dict[str, Any]]) -> str:
+    """The safe reply while a booking waits for approval. It repeats the request's own summary
+    (offer, passengers, exact price), so a replaced draft doesn't hide a new price from the user."""
+    parts = [AWAITING_APPROVAL]
+    for a in waiting:
+        if a.get("summary"):
+            parts.append(f"The request: {a['summary']}")
+        if a.get("approve_url"):
+            parts.append(f"Approve or reject it here: {a['approve_url']}")
+    return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -64,11 +76,20 @@ def facts_from_tool(name: str, is_error: bool, data: Mapping[str, Any]) -> tuple
     if is_error:
         return bookings, approvals
     if data.get("status") == "awaiting_approval" and data.get("approval_id"):
-        approvals[str(data["approval_id"])] = {"tool": name, "status": "pending"}
+        approvals[str(data["approval_id"])] = {
+            "tool": name,
+            "status": "pending",
+            "summary": data.get("summary"),
+            "approve_url": data.get("approve_url"),
+        }
     if name == "booking_get_booking" and data.get("booking_id"):
         bookings[str(data["booking_id"])] = dict(data)
     if name == "gateway_approval_status" and data.get("approval_id"):
-        approvals[str(data["approval_id"])] = {"tool": data.get("tool"), "status": data.get("status")}
+        approvals[str(data["approval_id"])] = {
+            "tool": data.get("tool"),
+            "status": data.get("status"),
+            "summary": data.get("summary"),
+        }
         result = data.get("result") or {}
         if isinstance(result, dict) and result.get("booking_id") and result.get("state"):
             bookings[str(result["booking_id"])] = dict(result)
@@ -76,7 +97,7 @@ def facts_from_tool(name: str, is_error: bool, data: Mapping[str, Any]) -> tuple
 
 
 def guard_reply(draft: str, facts: Facts) -> GuardDecision:
-    if not facts.booking_tools_used and not _FLIGHT_WORDS.search(draft):
+    if not facts.booking_tools_used and not _FLIGHT_WORDS.search(plain(draft)):
         return GuardDecision(True, draft, draft)
     bookings = facts.booking_models()
     check = check_reply(draft, bookings)
@@ -89,7 +110,7 @@ def guard_reply(draft: str, facts: Facts) -> GuardDecision:
     ]
     waiting = [a for a in waiting if a.get("status") in ("pending", "approved")]
     if not bookings and waiting:
-        return GuardDecision(False, AWAITING_APPROVAL, draft, check.claims, "awaiting_approval")
+        return GuardDecision(False, awaiting_reply(waiting), draft, check.claims, "awaiting_approval")
     return GuardDecision(False, check.safe_reply or AWAITING_APPROVAL, draft, check.claims, "not_confirmed")
 
 

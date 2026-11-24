@@ -60,7 +60,8 @@ DESCRIPTIONS: dict[str, dict[str, str]] = {
         "booking.get_offer": (
             "Get the current price and details of one offer: passenger slots, included and extra bags, "
             "refund and change rules. Pass quoted_total (the price you showed the user) to learn whether "
-            "the price changed. Always do this right before proposing a booking."
+            "the price changed. Always do this right before proposing a booking. If the price changed, "
+            "tell the user the new price and wait for their OK before booking_book_flight."
         ),
         "booking.get_seat_map": (
             "Check whether seats can be chosen for an offer and what seats cost. Some airlines offer no "
@@ -97,7 +98,8 @@ DESCRIPTIONS: dict[str, dict[str, str]] = {
             "Not for: finding flights (booking_search_flights), seats (booking_get_seat_map).\n"
             "Needs: offer_id; quoted_total = the price you showed the user.\n"
             "Returns: price_check unchanged or changed, passenger slots, included and extra bags.\n"
-            "Next: if the price changed, tell the user the new price and ask before booking."
+            "Next: if the price changed, tell the user the new price and wait for their OK before "
+            "booking_book_flight."
         ),
         "booking.get_seat_map": (
             "Seat selection for one offer_id.\n"

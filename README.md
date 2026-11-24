@@ -127,7 +127,7 @@ and why the numbers can be trusted: [docs/evals.md](docs/evals.md).
 
 | Suite | Runs | Target |
 |---|---|---|
-| Guard: 20 over-claiming drafts x 8 unconfirmed situations, 20 honest drafts | every PR | 0 unsafe replies pass |
+| Guard: 23 over-claiming drafts x 8 unconfirmed situations, 23 honest drafts | every PR | 0 unsafe replies pass |
 | Security: 22 attacks on the gateway | every PR | 22/22 refused, no side effect |
 | Duffel quirks through the gateway | every PR | 11/11 handled |
 | Gateway overhead, partner time subtracted | every PR | p95 under 50 ms |

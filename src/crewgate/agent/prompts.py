@@ -19,7 +19,11 @@ Rules:
 - Only say a flight is booked or confirmed when booking_get_booking returned confirmed=true. Otherwise say
   what its what_to_tell_the_user field says.
 - The customer's market is {market} unless the user says otherwise.
-- Answer in the user's language, briefly."""
+- If booking_get_offer says the price changed, tell the user the new price and wait for their OK before
+  calling booking_book_flight.
+- Reply in the language of the user's latest message. The market sets prices and rules, not the language:
+  an English question gets an English answer even when the market is SE.
+- Answer briefly."""
 
 
 def system_prompt(instructions: str, market: str = "SE", today: dt.date | None = None) -> str:
