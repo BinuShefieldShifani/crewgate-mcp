@@ -91,7 +91,8 @@ function select(i) {
   t.steps.forEach((s) => {
     if (s.kind === "model") {
       const wants = s.wants.length ? `wants ${s.wants.join(", ")}` : "writes a reply";
-      step("model", `Model ${wants}`, `${s.tokens} tokens · ${s.ms} ms${s.retried ? " · retried a malformed tool call" : ""}`);
+      const who = s.model ? ` · ${s.model}` : "";
+      step("model", `Model ${wants}`, `${s.tokens} tokens · ${s.ms} ms${who}${s.retried ? " · retried a malformed tool call" : ""}`);
     } else if (s.kind === "tool") {
       step(s.error ? "tool err" : "tool", `Gateway: ${s.tool}${s.error ? " refused (" + s.error + ")" : ""}`,
         JSON.stringify(s.arguments, null, 1) + `\n${s.ms} ms`);

@@ -223,7 +223,7 @@ async def test_expired_tokens_are_refreshed_and_a_dead_refresh_signs_out() -> No
 
 @pytest.mark.parametrize(
     ("error", "status", "code"),
-    [(LLMQuotaExceeded("daily"), 503, "model_busy"), (LLMError("x"), 502, "model_error")],
+    [(LLMQuotaExceeded("daily", 1500), 503, "model_busy"), (LLMError("x"), 502, "model_error")],
 )
 async def test_model_failures_are_reported_plainly(error: Exception, status: int, code: str) -> None:
     def fail(_: Any) -> Completion:
@@ -233,6 +233,8 @@ async def test_model_failures_are_reported_plainly(error: Exception, status: int
         await c.sign_in()
         r = await c.chat("hello")
         assert r.status_code == status and r.json()["error"] == code
+        if code == "model_busy":
+            assert "about 25 min" in r.json()["message"]
 
 
 async def test_reset_and_logout() -> None:

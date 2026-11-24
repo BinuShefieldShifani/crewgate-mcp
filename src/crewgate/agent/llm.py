@@ -31,6 +31,13 @@ class LLMError(Exception):
 class LLMQuotaExceeded(LLMError):
     """The provider wants us to wait longer than we are willing to (usually the daily limit)."""
 
+    def __init__(self, message: str, retry_after: float = 0.0) -> None:
+        super().__init__(message, retry_after)  # both in args, so copies of the error keep the wait
+        self.message, self.retry_after = message, retry_after
+
+    def __str__(self) -> str:
+        return self.message
+
 
 class LLMToolCallFailed(LLMError):
     """The model tried to call a tool but wrote an invalid call (Groq: 400 tool_use_failed).
@@ -195,7 +202,7 @@ class OpenAICompatibleChat:
         }
         if self.seed is not None:
             body["seed"] = self.seed
-        if self.reasoning_effort:
+        if self.reasoning_effort and takes_reasoning_effort(self.name):
             body["reasoning_effort"] = self.reasoning_effort
         resp = await self._http.post(self.url, json=body)
         out: dict[str, Any] = {"url": self.url, "model": self.name, "response": describe(resp)}
@@ -233,7 +240,7 @@ class OpenAICompatibleChat:
         }
         if self.seed is not None:
             body["seed"] = self.seed
-        if self.reasoning_effort:
+        if self.reasoning_effort and takes_reasoning_effort(self.name):
             body["reasoning_effort"] = self.reasoning_effort
         if tools:
             body["tools"], body["tool_choice"] = list(tools), "auto"
@@ -275,7 +282,7 @@ class OpenAICompatibleChat:
             if resp.status_code == 429:
                 wait = retry_after_seconds(resp)
                 if wait > self.max_wait or attempt == self.retries:
-                    raise LLMQuotaExceeded(f"rate limited by the model provider, retry in {wait:.0f}s")
+                    raise LLMQuotaExceeded(f"rate limited by the model provider, retry in {wait:.0f}s", wait)
                 await self._sleep(wait)
                 continue
             if resp.status_code == 400 and _error_code(resp) == "tool_use_failed":
@@ -285,6 +292,53 @@ class OpenAICompatibleChat:
                 continue
             raise LLMError(f"model provider returned {resp.status_code}: {_error_code(resp)}")
         raise LLMError("model call failed")  # pragma: no cover  (the loop always returns or raises)
+
+
+def takes_reasoning_effort(model: str) -> bool:
+    """gpt-oss and o-series models take low/medium/high; others reject the values or ignore them."""
+    name = model.rsplit("/", 1)[-1]
+    return name.startswith(("gpt-oss", "o1", "o3", "o4"))
+
+
+class FallbackChat:
+    """Tries models in order. A model whose quota is used up is skipped until its provider said it
+    could be retried, so a public console keeps answering on the next model instead of failing.
+    Each answer records which model gave it (Completion.model). Evals don't use this: they
+    measure one model."""
+
+    def __init__(
+        self, models: Sequence[OpenAICompatibleChat], clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        if not models:
+            raise LLMError("no models configured")
+        self.models, self.clock = list(models), clock
+        self.name = self.models[0].name
+        self._resting: dict[int, float] = {}  # model's position -> when it may be tried again
+
+    async def complete(self, messages: Sequence[Message], tools: Sequence[ToolDef]) -> Completion:
+        waits = []
+        for i, model in enumerate(self.models):
+            until = self._resting.get(i, 0.0)
+            if until > self.clock():
+                waits.append(until - self.clock())
+                continue
+            try:
+                c = await model.complete(messages, tools)
+            except LLMQuotaExceeded as exc:
+                self._resting[i] = self.clock() + max(exc.retry_after, 60.0)
+                waits.append(max(exc.retry_after, 60.0))
+                log.warning("llm_fallback", extra={"model": model.name, "retry_in": round(exc.retry_after)})
+                continue
+            return c if c.model else Completion(c.content, c.tool_calls, c.usage, c.latency_ms, model.name)
+        wait = min(waits) if waits else 60.0
+        raise LLMQuotaExceeded(f"every model is out of quota, retry in {wait:.0f}s", wait)
+
+    async def probe(self) -> dict[str, Any]:
+        return await self.models[0].probe()
+
+    async def aclose(self) -> None:
+        for m in self.models:
+            await m.aclose()
 
 
 def describe(resp: httpx.Response) -> str:

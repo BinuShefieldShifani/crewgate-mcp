@@ -226,10 +226,15 @@ def create_app(
             started = time.perf_counter()
             try:
                 turn = await run_turn(sess, text)
-            except LLMQuotaExceeded:
+            except LLMQuotaExceeded as exc:
                 metrics.turns.labels("model_quota").inc()
+                minutes = max(1, round(exc.retry_after / 60))
                 return JSONResponse(
-                    {"error": "model_busy", "message": "The free model quota is used up for now. Try later."},
+                    {
+                        "error": "model_busy",
+                        "message": f"The free model quota is used up. Try again in about {minutes} min.",
+                        "retry_after": round(exc.retry_after),
+                    },
                     503,
                     headers=_HEADERS,
                 )
@@ -306,6 +311,7 @@ def render(text: str, turn: TurnResult, sess: Session, seconds: float) -> dict[s
                     "tokens": t.get("prompt_tokens", 0) + t.get("completion_tokens", 0),
                     "wants": t.get("tool_calls", []),
                     "retried": bool(t.get("retried_bad_tool_call")),
+                    "model": t.get("model"),
                 }
             )
         elif t["kind"] in ("tool", "blocked"):

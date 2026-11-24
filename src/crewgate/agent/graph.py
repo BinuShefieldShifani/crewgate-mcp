@@ -125,6 +125,7 @@ class Agent:
             "prompt_tokens": c.usage.prompt_tokens,
             "completion_tokens": c.usage.completion_tokens,
             "tool_calls": [t.name for t in c.tool_calls],
+            "model": c.model,
         }
         if retried:
             step["retried_bad_tool_call"] = True
