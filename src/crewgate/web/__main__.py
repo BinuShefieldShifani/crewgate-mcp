@@ -18,7 +18,7 @@ def main() -> None:
     configure_logging(key, service="crewgate-web")
     agent = AgentSettings()
     # Without AGENT_LLM_API_KEY the console still runs (sign-in, the page), with chat switched off.
-    model = agent.chat_model() if agent.api_key() else None
+    model = agent.chat_model_with_fallbacks() if agent.api_key() else None
     app = create_app(settings, model)
     uvicorn.run(app, host=settings.host, port=settings.port, log_config=None, proxy_headers=False)
 

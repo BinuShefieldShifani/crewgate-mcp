@@ -7,7 +7,7 @@ variable, so a CI token can't be sent to a model provider by accident.
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .llm import OpenAICompatibleChat
+from .llm import FallbackChat, OpenAICompatibleChat
 
 
 class AgentSettings(BaseSettings):
@@ -15,6 +15,9 @@ class AgentSettings(BaseSettings):
 
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_model: str = "openai/gpt-oss-120b"
+    # Tried in order when the main model's free quota is used up (each Groq model has its own).
+    # Only the console uses them; evals always measure exactly one model.
+    llm_fallback_models: list[str] = ["openai/gpt-oss-20b"]
     llm_api_key: SecretStr | None = None
     # gpt-oss models reason before answering; "low" keeps answers fast and inside the free
     # tokens-per-minute limit. Empty for models that don't take this parameter.
@@ -30,12 +33,16 @@ class AgentSettings(BaseSettings):
     def api_key(self) -> str:
         return self.llm_api_key.get_secret_value() if self.llm_api_key is not None else ""
 
-    def chat_model(self) -> OpenAICompatibleChat:
+    def chat_model(self, model: str | None = None) -> OpenAICompatibleChat:
         return OpenAICompatibleChat(
             base_url=self.llm_base_url,
-            model=self.llm_model,
+            model=model or self.llm_model,
             api_key=self.api_key(),
             min_interval=self.llm_min_interval_seconds,
             max_wait=self.llm_max_wait_seconds,
             reasoning_effort=self.llm_reasoning_effort or None,
         )
+
+    def chat_model_with_fallbacks(self) -> FallbackChat:
+        names = [self.llm_model, *[m for m in self.llm_fallback_models if m != self.llm_model]]
+        return FallbackChat([self.chat_model(n) for n in names])

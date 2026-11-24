@@ -44,6 +44,9 @@ defaults for local runs and CI only.
 - Tokens stay on the server (backend-for-frontend); the browser gets an opaque HttpOnly cookie.
 - POSTs need the console's own origin and a custom header (CSRF).
 - 20 messages per person per hour, 300 model calls per day for everyone (the free model quota).
+- When the main model's free daily quota runs out, the console switches to the next model
+  (`AGENT_LLM_FALLBACK_MODELS`, default `openai/gpt-oss-20b`, which has its own quota) and shows
+  which model answered each step. Evals never fall back: they measure one model.
 - The gateway's own limits still apply per user and per app (`config/entitlements.toml`:
   the console is `crewgate-web`).
 - Every write still waits for a person to sign in again and approve it; bookings run against

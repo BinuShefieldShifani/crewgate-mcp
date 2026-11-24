@@ -64,7 +64,7 @@ def chat(
 
     model = OpenAICompatibleChat(
         base_url="https://models.test/inference/",
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-oss-120b",
         api_key="dev-only-key",
         transport=httpx.MockTransport(handler),
         sleep=clock.sleep,
@@ -286,3 +286,58 @@ async def test_an_invalid_tool_call_is_the_models_mistake_not_an_outage() -> Non
     with pytest.raises(LLMToolCallFailed):
         await model.complete([], [])
     assert len(seen) == 1  # not retried
+
+
+def test_reasoning_effort_only_for_models_that_take_it() -> None:
+    from crewgate.agent.llm import takes_reasoning_effort
+
+    assert takes_reasoning_effort("openai/gpt-oss-120b") and takes_reasoning_effort("o3-mini")
+    assert not takes_reasoning_effort("qwen/qwen3.8-27b") and not takes_reasoning_effort("llama-3.3-70b")
+
+
+async def test_reasoning_effort_is_not_sent_to_other_models() -> None:
+    model, seen = chat([httpx.Response(200, json=OK)], reasoning_effort="low")
+    model.name = "qwen/qwen3.8-27b"
+    await model.complete([], [])
+    assert "reasoning_effort" not in json.loads(seen[0].content)
+
+
+async def test_fallback_moves_on_when_a_models_quota_is_used_up() -> None:
+    from crewgate.agent.llm import FallbackChat
+
+    clock = Clock()
+    first, seen_first = chat([httpx.Response(429, headers={"retry-after": "3600"})], clock, min_interval=0)
+    second, seen_second = chat(
+        [httpx.Response(200, json=OK), httpx.Response(200, json=OK)], clock, min_interval=0
+    )
+    second.name = "openai/gpt-oss-20b"
+    fb = FallbackChat([first, second], clock=clock)
+    assert fb.name == "openai/gpt-oss-120b" or fb.name == first.name
+    c = await fb.complete([], [])
+    assert c.tool_calls and len(seen_first) == 1 and len(seen_second) == 1
+    await fb.complete([], [])  # the first model rests: not even tried
+    assert len(seen_first) == 1 and len(seen_second) == 2
+
+
+async def test_fallback_gives_up_with_the_shortest_wait() -> None:
+    from crewgate.agent.llm import FallbackChat
+
+    clock = Clock()
+    a, _ = chat([httpx.Response(429, headers={"retry-after": "900"})], clock, min_interval=0)
+    b, _ = chat([httpx.Response(429, headers={"retry-after": "300"})], clock, min_interval=0)
+    fb = FallbackChat([a, b], clock=clock)
+    with pytest.raises(LLMQuotaExceeded) as exc:
+        await fb.complete([], [])
+    assert exc.value.retry_after == 300
+    with pytest.raises(LLMQuotaExceeded) as exc:  # both resting now: no request at all
+        await fb.complete([], [])
+    assert 0 < exc.value.retry_after <= 300
+    with pytest.raises(LLMError):
+        FallbackChat([])
+
+
+async def test_settings_build_the_fallback_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_LLM_API_KEY", "dev-only-explicit")
+    fb = AgentSettings(_env_file=None).chat_model_with_fallbacks()  # type: ignore[call-arg]
+    assert [m.name for m in fb.models] == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    await fb.aclose()
