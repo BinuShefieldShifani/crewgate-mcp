@@ -9,6 +9,15 @@ per_user_per_minute = 30
 per_client_per_minute = 300
 daily_quota = 10000
 
+[clients.crewgate-web]
+# The web console (src/crewgate/web): same reach as the planner agent, tighter per-user limits
+# because it can be public.
+tools = ["gateway.*", "crew.*", "booking.*"]
+markets = ["SE", "NO", "DK", "FI"]
+per_user_per_minute = 20
+per_client_per_minute = 200
+daily_quota = 5000
+
 [clients.booking-assistant-se]
 # A booking-only assistant for the Swedish market. No crew data.
 tools = ["gateway.*", "booking.*"]

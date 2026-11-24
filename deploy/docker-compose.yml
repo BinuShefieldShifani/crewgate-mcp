@@ -1,4 +1,5 @@
-# Local and CI stack: Keycloak, mock crew API, the crewgate MCP gateway. Prometheus + Grafana join in Step 7.
+# Local and CI stack: Keycloak, mock crew API, the crewgate MCP gateway, the web console,
+# Prometheus and Grafana. For one public URL (Codespaces, a server) add docker-compose.public.yml.
 # Run from repo root:  make up    (same as: docker compose -f deploy/docker-compose.yml up -d --build --wait)
 name: crewgate
 
@@ -93,5 +94,62 @@ services:
       timeout: 3s
       retries: 10
 
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    environment:
+      WEB_PUBLIC_URL: http://localhost:8090
+      WEB_ISSUER: http://localhost:8080/realms/crewgate
+      WEB_INTERNAL_ISSUER: http://keycloak:8080/realms/crewgate
+      WEB_CLIENT_SECRET: ${CREWGATE_WEB_CLIENT_SECRET:-dev-only-web-secret}
+      WEB_GATEWAY_MCP_URL: http://gateway:8000/mcp
+      WEB_GRAFANA_URL: http://localhost:3000/d/crewgate
+      WEB_PSEUDONYM_KEY: ${CREWGATE_PSEUDONYM_KEY:-dev-only-pseudonym-key}
+      # The model key (Groq). Without it the console runs with chat switched off.
+      AGENT_LLM_API_KEY: ${AGENT_LLM_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-dev-only-grafana}
+      # Anyone with the link can look at the dashboard, nobody can change it.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/crewgate.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
 volumes:
   gateway-audit:
+  prometheus-data:
+  grafana-data:

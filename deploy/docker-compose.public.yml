@@ -1,0 +1,76 @@
+# One public URL for the whole stack, behind the Caddy edge.
+#
+#   CREWGATE_PUBLIC_URL=https://<your-url> docker compose \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.public.yml up -d --build --wait
+#
+# Everything is reached through the edge: / console, /auth Keycloak, /mcp and /approvals the
+# gateway, /grafana dashboards. No other port is published. scripts/codespace_demo.sh sets the
+# variables for a Codespace; docs/deploy.md covers a server with a domain.
+name: crewgate
+
+x-public: &public
+  CREWGATE_PUBLIC_URL: ${CREWGATE_PUBLIC_URL:?set CREWGATE_PUBLIC_URL to the public https URL}
+
+services:
+  edge:
+    image: caddy:2.11
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "${CREWGATE_EDGE_PORT:-8443}:8443"
+    environment:
+      CREWGATE_SITE: ${CREWGATE_SITE:-:8443}
+    volumes:
+      - ./edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  keycloak:
+    ports: !reset []
+    environment:
+      <<: *public
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_MANAGEMENT_RELATIVE_PATH: /  # keeps the health check at :9000/health/ready
+      KC_HOSTNAME: ${CREWGATE_PUBLIC_URL}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+
+  mock-roster:
+    ports: !reset []
+    environment:
+      MOCKAPI_OIDC_ISSUER: ${CREWGATE_PUBLIC_URL}/auth/realms/crewgate
+      MOCKAPI_OIDC_JWKS_URL: http://keycloak:8080/auth/realms/crewgate/protocol/openid-connect/certs
+
+  gateway:
+    ports: !reset []
+    environment:
+      CREWGATE_PUBLIC_URL: ${CREWGATE_PUBLIC_URL}
+      CREWGATE_ALLOWED_HOSTS: '["${CREWGATE_PUBLIC_HOST:?set CREWGATE_PUBLIC_HOST}", "${CREWGATE_PUBLIC_HOST}:*", "gateway:*", "localhost:*"]'
+      CREWGATE_ALLOWED_ORIGINS: '["${CREWGATE_PUBLIC_URL}"]'
+      CREWGATE_AUTH_ISSUER: ${CREWGATE_PUBLIC_URL}/auth/realms/crewgate
+      CREWGATE_AUTH_JWKS_URL: http://keycloak:8080/auth/realms/crewgate/protocol/openid-connect/certs
+      CREWGATE_AUTH_TOKEN_URL: http://keycloak:8080/auth/realms/crewgate/protocol/openid-connect/token
+      CREWGATE_AUTH_RESOURCE: ${CREWGATE_PUBLIC_URL}/mcp
+      CREWGATE_APPROVALS_AUTHORIZE_URL: ${CREWGATE_PUBLIC_URL}/auth/realms/crewgate/protocol/openid-connect/auth
+
+  web:
+    ports: !reset []
+    environment:
+      WEB_PUBLIC_URL: ${CREWGATE_PUBLIC_URL}
+      WEB_ISSUER: ${CREWGATE_PUBLIC_URL}/auth/realms/crewgate
+      WEB_INTERNAL_ISSUER: http://keycloak:8080/auth/realms/crewgate
+      WEB_GRAFANA_URL: ${CREWGATE_PUBLIC_URL}/grafana/d/crewgate
+
+  prometheus:
+    ports: !reset []
+
+  grafana:
+    ports: !reset []
+    environment:
+      GF_SERVER_ROOT_URL: ${CREWGATE_PUBLIC_URL}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+
+volumes:
+  caddy-data:
+  caddy-config:
