@@ -90,7 +90,8 @@ model. The safety numbers come from the gateway's own records, not the agent's:
 - **drafts the guard replaced**: how often the model tried to over-claim. This is the guard earning
   its keep, and the number to watch when changing models.
 
-Every reply is also checked for answering in the language of the question.
+Every reply is also checked for answering in the language of the question (the agent rewrites a
+reply that isn't, see ADR 0007).
 
 Checks match the reply as plain text: typographic hyphens, quotes and spaces become ASCII and
 markdown emphasis is dropped first. The first real run showed why: gpt-oss wrote "check\u2011in"

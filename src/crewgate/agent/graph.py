@@ -1,10 +1,12 @@
 """The agent as a LangGraph state graph.
 
-    START -> think -> (tool calls?) -> act -> think -> ... -> guard -> END
-                   \\-> (no tool calls, or out of steps) -----> guard
+    START -> think -> (tool calls?) -> act -> think -> ... -> language -> guard -> END
+                   \\-> (no tool calls) -> language -> guard
+                   \\-> (out of steps) ------------> guard
 
 think  one model call with the gateway's tools
 act    runs the tool calls through the MCP gateway, records facts from the results
+language  one rewrite if the reply is clearly in another language than the user's message
 guard  checks the draft reply against those facts (reply_guard.py). Every reply passes here:
        there is no edge to END that skips it.
 
@@ -21,7 +23,8 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from .llm import ChatModel, Completion, LLMToolCallFailed, Message
+from .language import mismatch, rewrite_request
+from .llm import ChatModel, Completion, LLMError, LLMToolCallFailed, Message
 from .prompts import system_prompt
 from .reply_guard import Facts, GuardDecision, facts_from_tool, guard_reply
 from .tools import GatewayTools
@@ -44,6 +47,7 @@ class AgentState(TypedDict, total=False):
     steps: Annotated[int, operator.add]
     trace: Annotated[list[dict[str, Any]], operator.add]
     out_of_steps: bool
+    draft: str  # set when the reply was rewritten into the user's language
     final: str
     guard: dict[str, Any]
 
@@ -139,7 +143,11 @@ class Agent:
 
     async def _guard(self, state: AgentState) -> AgentState:
         last = state["messages"][-1]
-        draft = OUT_OF_STEPS if state.get("out_of_steps") else str(last.get("content") or "")
+        draft = (
+            OUT_OF_STEPS
+            if state.get("out_of_steps")
+            else state.get("draft") or str(last.get("content") or "")
+        )
         facts = Facts(
             state.get("bookings", {}), state.get("approvals", {}), state.get("booking_tools_used", False)
         )
@@ -150,12 +158,38 @@ class Agent:
             "trace": [{"kind": "guard", "ok": decision.ok}],
         }
 
+    async def _language(self, state: AgentState) -> AgentState:
+        """One rewrite when the reply is clearly not in the language of the user's latest message."""
+        reply = str(state["messages"][-1].get("content") or "")
+        user = next((m["content"] for m in reversed(state["messages"]) if m.get("role") == "user"), "")
+        want = mismatch(str(user), reply)
+        if want is None:
+            return {}
+        request: list[Message] = [
+            {"role": "system", "content": "You rewrite text into another language and change nothing else."},
+            {"role": "user", "content": rewrite_request(reply, want)},
+        ]
+        try:
+            c = await self.model.complete(request, [])
+        except LLMError:
+            return {"trace": [{"kind": "rewrite", "to": want, "ok": False}]}  # keep the original
+        step = {
+            "kind": "llm",
+            "ms": round(c.latency_ms, 1),
+            "prompt_tokens": c.usage.prompt_tokens,
+            "completion_tokens": c.usage.completion_tokens,
+            "tool_calls": [],
+        }
+        if not c.content or c.tool_calls:
+            return {"trace": [step, {"kind": "rewrite", "to": want, "ok": False}]}
+        return {"draft": c.content, "steps": 1, "trace": [step, {"kind": "rewrite", "to": want, "ok": True}]}
+
     async def _out_of_steps(self, state: AgentState) -> AgentState:
         return {"out_of_steps": True}
 
-    def _route(self, state: AgentState) -> Literal["act", "guard", "out_of_steps"]:
+    def _route(self, state: AgentState) -> Literal["act", "language", "out_of_steps"]:
         if not state["messages"][-1].get("tool_calls"):
-            return "guard"
+            return "language"
         return "act" if state.get("steps", 0) < self.max_steps else "out_of_steps"
 
     def _build(self) -> Any:
@@ -163,10 +197,12 @@ class Agent:
         g.add_node("think", self._think)
         g.add_node("act", self._act)
         g.add_node("out_of_steps", self._out_of_steps)
+        g.add_node("language", self._language)
         g.add_node("guard", self._guard)
         g.add_edge(START, "think")
         g.add_conditional_edges("think", self._route)
         g.add_edge("act", "think")
+        g.add_edge("language", "guard")
         g.add_edge("out_of_steps", "guard")
         g.add_edge("guard", END)
         return g.compile()
@@ -182,6 +218,7 @@ class Agent:
             "steps": 0,
             "trace": [],
             "out_of_steps": False,
+            "draft": "",
         }
         final: AgentState = await self.graph.ainvoke(state, {"recursion_limit": 4 * self.max_steps + 8})
         decision = GuardDecision(**{**final["guard"], "claims": tuple(final["guard"]["claims"])})

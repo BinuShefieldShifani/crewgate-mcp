@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from crewgate.agent import Agent, GatewayTools, TurnResult
+from crewgate.agent.language import detect
 from crewgate.agent.llm import ChatModel, Completion, LLMError, LLMQuotaExceeded, Message, ToolDef
 from crewgate.agent.reply_guard import Facts, guard_reply
 from crewgate.plugins.booking.confirmation import plain
@@ -99,16 +100,9 @@ def mentions(text: str, pattern: str) -> bool:
     return re.search(pattern, plain(text), re.IGNORECASE) is not None
 
 
-_SWEDISH = re.compile(
-    r"\b(och|inte|är|för|jag|det|har|kan|du|vill|ingen|inga|den|med|på|av)\b", re.IGNORECASE
-)
-_ENGLISH = re.compile(r"\b(the|and|not|is|for|you|can|has|to|of|with|on|no|it)\b", re.IGNORECASE)
-
-
 def language(text: str) -> str:
-    """Rough guess, good enough to tell an English reply from a Swedish one."""
-    sv, en = len(_SWEDISH.findall(text)), len(_ENGLISH.findall(text))
-    return "sv" if sv > en else "en"
+    """The reply's language as the agent itself judges it; "en" when it can't tell."""
+    return detect(text, min_hits=3) or "en"
 
 
 # ---- scenarios -----------------------------------------------------------------------------

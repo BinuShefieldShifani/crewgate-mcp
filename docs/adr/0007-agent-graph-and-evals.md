@@ -56,3 +56,12 @@ with `reasoning_effort: low`. The client needed only a new base URL and key, whi
 of keeping it provider-neutral. Two things changed with it: the key comes only from
 `AGENT_LLM_API_KEY` (never from `GITHUB_TOKEN`, so a CI token can't leak to a provider), and an
 invalid tool call (`tool_use_failed`) counts as the model's mistake in the evals.
+
+## Update, 2026-11-24: a language step before the guard
+In the first two real scenario runs, gpt-oss-120b answered 4, then 3, of 10 English questions in
+Swedish, even after the prompt said to reply in the language of the user's latest message. A
+prompt rule alone wasn't enough, so the graph got a `language` node between `think` and `guard`.
+It guesses the language of the user's message and of the reply (English and Swedish only, from
+common words) and, when they clearly differ, asks the model once to rewrite the reply, keeping
+every fact, number and link. The rewrite then goes through the guard like any reply. One extra
+model call, only on a mismatch; if the rewrite fails the original stands.
