@@ -30,6 +30,10 @@ from .reply_guard import Facts, GuardDecision, facts_from_tool, guard_reply
 from .tools import GatewayTools
 
 TOOL_CALL_FAILED = "Sorry, I made a mistake while working on that. Could you say it again, maybe more simply?"
+RETRY_NOTE = (
+    "Your last tool call was rejected as malformed. Call the tool again with arguments that are one valid "
+    "JSON object matching its schema, or answer without a tool."
+)
 OUT_OF_STEPS = (
     "I could not finish this within the allowed number of steps. Nothing new was booked or changed."
 )
@@ -85,10 +89,18 @@ class Agent:
 
     async def _think(self, state: AgentState) -> AgentState:
         messages: list[Message] = [{"role": "system", "content": self.system}, *state.get("messages", [])]
+        retried = False
         try:
             c = await self.model.complete(messages, self.tool_defs)
         except LLMToolCallFailed:
-            c = Completion(content=TOOL_CALL_FAILED)  # the turn ends through the guard as usual
+            # A malformed tool call is often a one-off (seen once in 38 real calls). Ask once more,
+            # saying what went wrong; if that fails too, end the turn through the guard as usual.
+            retried = True
+            note: Message = {"role": "system", "content": RETRY_NOTE}
+            try:
+                c = await self.model.complete([*messages, note], self.tool_defs)
+            except LLMToolCallFailed:
+                c = Completion(content=TOOL_CALL_FAILED)
         step = {
             "kind": "llm",
             "ms": round(c.latency_ms, 1),
@@ -96,6 +108,8 @@ class Agent:
             "completion_tokens": c.usage.completion_tokens,
             "tool_calls": [t.name for t in c.tool_calls],
         }
+        if retried:
+            step["retried_bad_tool_call"] = True
         return {"messages": [c.as_message()], "steps": 1, "trace": [step]}
 
     async def _act(self, state: AgentState) -> AgentState:
