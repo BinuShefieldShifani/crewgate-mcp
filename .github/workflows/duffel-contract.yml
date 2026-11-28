@@ -32,9 +32,9 @@ jobs:
       - name: Skip without a token
         if: env.DUFFEL_ACCESS_TOKEN == ''
         run: echo "::notice::DUFFEL_TEST_TOKEN is not available to this run (fork or Dependabot); skipping."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.DUFFEL_ACCESS_TOKEN != ''
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         if: env.DUFFEL_ACCESS_TOKEN != ''
         with:
           python-version: "3.12"
