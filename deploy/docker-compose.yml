@@ -134,7 +134,7 @@ services:
       - prometheus-data:/prometheus
 
   grafana:
-    image: grafana/grafana:13.3.0
+    image: grafana/grafana:13.3.2
     depends_on:
       - prometheus
     ports:
